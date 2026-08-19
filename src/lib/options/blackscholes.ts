@@ -103,7 +103,12 @@ export function blackScholes(
 
 /** Implied volatility by Newton-Raphson with a bisection safety net.
  *  Newton alone diverges for deep-ITM/OTM options where vega collapses, so
- *  the bracketed fallback is not optional in production. */
+ *  the bracketed fallback is not optional in production.
+ *
+ *  Returns NaN when no volatility can explain the price. This is not a solver
+ *  failure — a deep in-the-money option at low volatility has extrinsic value
+ *  below double precision (order 1e-14), so its price carries no information
+ *  about volatility at all. Returning a number there would be fabrication. */
 export function impliedVolatility(
   marketPrice: number,
   S: number,

@@ -11,5 +11,8 @@ next-env.d.ts
 .DS_Store
 .cache/
 coverage/
+# Backtest artefacts are large; ship only the headline BTC run so the
+# /backtest page renders on a fresh clone. Regenerate others locally.
 artifacts/*.json
 !artifacts/.gitkeep
+!artifacts/backtest-BTCUSD-1d.json

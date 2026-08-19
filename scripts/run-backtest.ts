@@ -168,7 +168,7 @@ async function main(): Promise<void> {
   const mc = monteCarlo(result.trades, m.initialCapital, 5000);
   if (mc.runs > 0) {
     console.log(`\n${RULE}`);
-    console.log('  MONTE CARLO — 5,000 reshuffles of the same trade sequence');
+    console.log('  MONTE CARLO — 5,000 bootstrap resamples of the realised trades');
     console.log(RULE);
     row('5th percentile', fmtUsd(mc.p5));
     row('25th percentile', fmtUsd(mc.p25));

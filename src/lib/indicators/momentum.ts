@@ -27,8 +27,19 @@ export function rsi(src: readonly number[], period = 14): number[] {
   const l = rma(losses.slice(1), period);
   for (let i = 0; i < g.length; i++) {
     if (!Number.isFinite(g[i]) || !Number.isFinite(l[i])) continue;
-    // Zero average loss means an unbroken win streak: RSI is 100 by definition.
-    out[i + 1] = l[i] === 0 ? 100 : 100 - 100 / (1 + g[i] / l[i]);
+    if (l[i] === 0 && g[i] === 0) {
+      // No movement in either direction. The usual "zero average loss means
+      // RSI 100" convention is wrong here — it would report a motionless
+      // instrument (a halted stock, an illiquid name that did not trade) as
+      // maximally overbought. With no gains and no losses the honest reading
+      // is the neutral midpoint.
+      out[i + 1] = 50;
+    } else if (l[i] === 0) {
+      // Zero average loss with real gains: an unbroken win streak, RSI 100.
+      out[i + 1] = 100;
+    } else {
+      out[i + 1] = 100 - 100 / (1 + g[i] / l[i]);
+    }
   }
   return out;
 }
@@ -275,9 +286,13 @@ export function ultimateOscillator(bars: readonly Bar[], p1 = 7, p2 = 14, p3 = 2
         sbp += bp[j];
         str += tr[j];
       }
-      return str === 0 ? 0 : sbp / str;
+      // A zero true range over the window means no trading activity to
+      // measure; NaN propagates and the vote abstains rather than reading 0
+      // (which the scale would interpret as maximally oversold).
+      return str === 0 ? NaN : sbp / str;
     };
-    out[i] = ((4 * avg(p1) + 2 * avg(p2) + avg(p3)) / 7) * 100;
+    const composite = (4 * avg(p1) + 2 * avg(p2) + avg(p3)) / 7;
+    out[i] = Number.isFinite(composite) ? composite * 100 : NaN;
   }
   return out;
 }

@@ -42,8 +42,35 @@ export function buildTradePlan(input: PlanInput): TradePlan {
   } = input;
 
   const price = s.price;
-  const atr = Number.isFinite(s.atr14) && s.atr14 > 0 ? s.atr14 : price * 0.02;
+  const rawAtr = s.atr14;
   const notes: string[] = [];
+
+  // An instrument that is not moving cannot be traded: there is no edge to
+  // capture and no honest place to put a stop. This is a backstop against
+  // degenerate inputs (a halted name, an illiquid series, a padded feed)
+  // producing a confident-looking ticket out of numerical artefacts.
+  const MIN_ATR_PCT = 0.0005;   // 5bp of price
+  if (!(price > 0) || !Number.isFinite(rawAtr) || rawAtr / price < MIN_ATR_PCT) {
+    return {
+      direction: 'flat',
+      instrument: 'none',
+      entry: price,
+      stop: NaN,
+      targets: [],
+      riskReward: NaN,
+      riskFraction: 0,
+      size: 0,
+      notional: 0,
+      horizon,
+      expectedBars: 0,
+      notes: [
+        `No trade: average true range is ${Number.isFinite(rawAtr) ? `${((rawAtr / price) * 100).toFixed(3)}% of price` : 'unmeasurable'}, below the ${(MIN_ATR_PCT * 100).toFixed(2)}% floor. ` +
+        'An instrument this static offers nothing to trade and no defensible stop distance — any signal here is a numerical artefact, not a read on the market.',
+      ],
+    };
+  }
+
+  const atr = rawAtr;
 
   // --- direction ----------------------------------------------------------
   // A conviction floor prevents the engine from issuing a directional

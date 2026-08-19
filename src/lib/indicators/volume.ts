@@ -85,7 +85,9 @@ export function mfi(bars: readonly Bar[], period = 14): number[] {
       if (tp[j] > tp[j - 1]) pos += flow;
       else if (tp[j] < tp[j - 1]) neg += flow;
     }
-    out[i] = neg === 0 ? 100 : 100 - 100 / (1 + pos / neg);
+    // As with RSI, zero negative flow only means 100 when there IS positive
+    // flow. No flow in either direction is neutral, not overbought.
+    out[i] = pos === 0 && neg === 0 ? 50 : neg === 0 ? 100 : 100 - 100 / (1 + pos / neg);
   }
   return out;
 }

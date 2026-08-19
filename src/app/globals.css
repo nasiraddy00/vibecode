@@ -318,3 +318,17 @@ body {
 .dt.compact thead th { padding: 5px 5px; font-size: 8px; }
 .dt.compact tbody td { padding: 4px 5px; font-size: 10.5px; }
 .dt.compact { table-layout: auto; }
+
+/* Ticket form inputs */
+.ticket-input {
+  width: 100%;
+  background: var(--color-void);
+  border: 1px solid var(--color-hairline-bright);
+  padding: 4px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-ink);
+  outline: none;
+}
+.ticket-input:focus { border-color: var(--color-amber); }
+.ticket-input::placeholder { color: var(--color-ink-4); }

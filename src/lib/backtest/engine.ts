@@ -473,8 +473,8 @@ function buildCaveats(
     c.push(
       'PRICE DATA IS SYNTHETIC. This run used the deterministic simulator, not real market history, ' +
       'because no live data provider was reachable. The simulator reproduces volatility clustering, fat tails and ' +
-      'regime persistence, so the engine faces a realistically hostile series — but these are NOT real Bitcoin prices, ' +
-      'and this result is evidence about the ENGINE, not about the strategy\'s real-world profitability.',
+      `regime persistence, so the engine faces a realistically hostile series — but these are NOT real ${config.symbol} ` +
+      'prices, and this result is evidence about the ENGINE, not about the strategy\'s real-world profitability.',
     );
   }
 

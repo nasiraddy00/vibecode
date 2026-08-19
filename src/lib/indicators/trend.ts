@@ -397,10 +397,15 @@ export function trendAlignment(src: readonly number[]): {
     const cur = last(maSeries);
     const prev = maSeries[maSeries.length - 6];
     if (!Number.isFinite(cur)) return;
-    const above = price > cur;
+    // Exact equality (a motionless series, or price sitting precisely on the
+    // average) is neutral. Treating it as "below" reports a flat instrument as
+    // a full-strength downtrend.
+    const eps = Math.abs(cur) * 1e-9;
+    const position = price > cur + eps ? 0.5 : price < cur - eps ? -0.5 : 0;
+    const above = position > 0;
     const slope = Number.isFinite(prev) && prev !== 0 ? (cur - prev) / prev : 0;
-    // Half the weight for price-above-MA, half for the MA itself rising.
-    const component = (above ? 0.5 : -0.5) + Math.max(-0.5, Math.min(0.5, slope * 40));
+    // Half the weight for price-vs-MA, half for the MA itself rising.
+    const component = position + Math.max(-0.5, Math.min(0.5, slope * 40));
     score += weights[idx] * component * 2;
     usedWeight += weights[idx];
     detail.push({ period: p, above, slope });
