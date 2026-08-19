@@ -1,0 +1,313 @@
+@import 'tailwindcss';
+
+/* ===========================================================================
+   MERIDIAN TERMINAL — design tokens
+   Visual language: Bloomberg Professional terminal density, the cold
+   institutional palette of "Industry", the amber-on-black authority of
+   "Billions" trading floors. Data is the hero; chrome recedes.
+   ========================================================================= */
+
+@theme {
+  /* --- surfaces: near-black, cool-shifted, five levels of elevation ----- */
+  --color-void: #05070a;
+  --color-terminal: #080b10;
+  --color-panel: #0d1117;
+  --color-raised: #12171f;
+  --color-overlay: #171d27;
+
+  /* --- hairlines & dividers ------------------------------------------- */
+  --color-hairline: #1a212c;
+  --color-hairline-bright: #273140;
+  --color-grid: #121821;
+
+  /* --- signature amber (primary accent) -------------------------------- */
+  --color-amber: #ffb000;
+  --color-amber-bright: #ffc63d;
+  --color-amber-deep: #d98c00;
+  --color-amber-dim: #6b4a00;
+
+  /* --- directional semantics ------------------------------------------ */
+  --color-long: #1fd67f;
+  --color-long-bright: #4dffab;
+  --color-long-dim: #0d3d26;
+  --color-short: #ff3b47;
+  --color-short-bright: #ff6b74;
+  --color-short-dim: #431216;
+  --color-flat: #7d8899;
+
+  /* --- informational ---------------------------------------------------- */
+  --color-ice: #4dd8e8;
+  --color-ice-dim: #0f3a42;
+  --color-violet: #9b7dff;
+  --color-violet-dim: #2a2150;
+
+  /* --- typography ------------------------------------------------------- */
+  --color-ink: #e9eef7;
+  --color-ink-2: #a4b0c2;
+  --color-ink-3: #6b7688;
+  --color-ink-4: #48505f;
+
+  --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+
+  --radius-none: 0px;
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+}
+
+/* ===========================================================================
+   BASE
+   ========================================================================= */
+
+* {
+  border-color: var(--color-hairline);
+  min-width: 0;
+}
+
+html {
+  background: var(--color-void);
+  color-scheme: dark;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-void);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-feature-settings: 'tnum' 1, 'cv01' 1, 'ss01' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Every numeral in the terminal is tabular and monospaced. Non-negotiable:
+   columns of figures must align to the pixel or the eye cannot scan them. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+  letter-spacing: -0.01em;
+}
+
+/* Micro-labels: the uppercase field captions of a real terminal. */
+.label {
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+  font-weight: 600;
+}
+
+.label-xs {
+  font-size: 8px;
+  line-height: 1;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-ink-4);
+  font-weight: 600;
+}
+
+/* ===========================================================================
+   SCROLLBARS — thin, terminal-grade
+   ========================================================================= */
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--color-terminal); }
+::-webkit-scrollbar-thumb {
+  background: #212a37;
+  border: 2px solid var(--color-terminal);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: #33404f; }
+::-webkit-scrollbar-corner { background: var(--color-terminal); }
+
+* { scrollbar-width: thin; scrollbar-color: #212a37 var(--color-terminal); }
+
+/* ===========================================================================
+   PANEL — the fundamental building block
+   ========================================================================= */
+
+.panel {
+  background: var(--color-panel);
+  border: 1px solid var(--color-hairline);
+  position: relative;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  height: 26px;
+  background: linear-gradient(180deg, #131924 0%, #0f141c 100%);
+  border-bottom: 1px solid var(--color-hairline);
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 9.5px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Amber rail on the left edge of emphasised panels — Bloomberg's tell. */
+.panel-accent::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-amber);
+  opacity: 0.85;
+}
+
+/* ===========================================================================
+   DATA TABLE
+   ========================================================================= */
+
+.dt { width: 100%; border-collapse: separate; border-spacing: 0; }
+
+.dt thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #10151d;
+  font-size: 8.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-ink-3);
+  text-align: right;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--color-hairline-bright);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.dt thead th:first-child { text-align: left; }
+
+.dt tbody td {
+  padding: 4px 8px;
+  font-size: 11px;
+  text-align: right;
+  border-bottom: 1px solid #10151d;
+  white-space: nowrap;
+  color: var(--color-ink);
+}
+
+.dt tbody td:first-child { text-align: left; }
+.dt tbody tr:hover td { background: #131a24; }
+.dt tbody tr.sel td { background: #17202c; }
+
+/* ===========================================================================
+   BLINK / LIVE INDICATORS
+   ========================================================================= */
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-long);
+  box-shadow: 0 0 6px var(--color-long);
+  animation: pulse-dot 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.live-dot.sim { background: var(--color-amber); box-shadow: 0 0 6px var(--color-amber); }
+.live-dot.cold { background: var(--color-ink-4); box-shadow: none; animation: none; }
+
+@keyframes flash-up {
+  0% { background-color: rgba(31, 214, 127, 0.32); }
+  100% { background-color: transparent; }
+}
+@keyframes flash-down {
+  0% { background-color: rgba(255, 59, 71, 0.32); }
+  100% { background-color: transparent; }
+}
+.flash-up { animation: flash-up 0.7s ease-out; }
+.flash-down { animation: flash-down 0.7s ease-out; }
+
+/* ===========================================================================
+   TAPE — horizontal marquee
+   ========================================================================= */
+
+@keyframes tape-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.tape-track {
+  display: flex;
+  width: max-content;
+  animation: tape-scroll 90s linear infinite;
+}
+.tape-track:hover { animation-play-state: paused; }
+
+/* ===========================================================================
+   FOCUS — keyboard-first, always visible
+   ========================================================================= */
+
+:focus-visible {
+  outline: 1px solid var(--color-amber);
+  outline-offset: 1px;
+}
+
+/* ===========================================================================
+   SCANLINE / CRT texture — subtle, 3% opacity. Sells the terminal without
+   sacrificing legibility.
+   ========================================================================= */
+
+.crt::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.014) 0px,
+    rgba(255, 255, 255, 0.014) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+/* ===========================================================================
+   UTILITIES
+   ========================================================================= */
+
+.hairline-grid {
+  background-image:
+    linear-gradient(var(--color-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.glow-amber { text-shadow: 0 0 12px rgba(255, 176, 0, 0.45); }
+.glow-long { text-shadow: 0 0 12px rgba(31, 214, 127, 0.45); }
+.glow-short { text-shadow: 0 0 12px rgba(255, 59, 71, 0.45); }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .tape-track { animation: none; }
+}
