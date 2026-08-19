@@ -175,7 +175,7 @@ export function simulateSeries(inst: Instrument, opts: SimulatorOptions): Simula
     const eps = sigma * z;
     const leverage = eps < 0 ? gamma * eps * eps : 0;
     variance = omega + alpha * eps * eps + leverage + beta * variance;
-    variance = clamp(variance, 0.05, 14);
+    variance = clamp(variance, 0.08, 8);
   }
 
   // --- variance targeting --------------------------------------------------
@@ -218,9 +218,14 @@ export function simulateSeries(inst: Instrument, opts: SimulatorOptions): Simula
     const gapScale = inst.continuous ? 0.0008 : 0.0035;
     const o = i === 0 ? c : prevC * (1 + gaussian(rng) * gapScale * (inst.typicalVol / 0.25));
 
-    const barVol = Math.abs(c - o) + Math.abs(c) * barSd * (0.6 + rng() * 1.1);
-    const wickUp = Math.abs(gaussian(rng)) * barVol * 0.55;
-    const wickDn = Math.abs(gaussian(rng)) * barVol * 0.55;
+    // Calibrate the intrabar range so ATR lands at a realistic multiple of
+    // close-to-close volatility. Empirically ATR/price runs about 1.4x daily
+    // sigma for liquid instruments; deriving the wicks from |c-o| as well as
+    // sigma double-counts the daily move and inflates ATR badly, which then
+    // propagates into absurd stop distances downstream.
+    const barVol = Math.abs(c) * barSd * (0.7 + rng() * 0.6);
+    const wickUp = Math.abs(gaussian(rng)) * barVol * 0.38;
+    const wickDn = Math.abs(gaussian(rng)) * barVol * 0.38;
 
     const h = Math.max(o, c) + wickUp;
     const l = Math.max(1e-9, Math.min(o, c) - wickDn);

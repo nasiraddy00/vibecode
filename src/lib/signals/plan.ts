@@ -86,19 +86,51 @@ export function buildTradePlan(input: PlanInput): TradePlan {
   const structuralStop = findStructuralStop(s, isLong, price, atr);
   let stop = atrStop;
   if (Number.isFinite(structuralStop)) {
-    // Take the structural level when it is not absurdly far away.
+    // Use the structural level when it is close enough to be the real
+    // invalidation point. Note this REPLACES the ATR stop rather than being
+    // combined with it: taking min/max against the ATR stop would let the ATR
+    // distance act as a floor on width, so structure could only ever widen the
+    // stop and never tighten it — which defeats the entire purpose and, in a
+    // high-volatility regime, produces stops absurdly far from price.
     const structuralDistance = Math.abs(price - structuralStop);
     if (structuralDistance <= atr * atrMultiple * 1.8 && structuralDistance >= atr * 0.5) {
-      stop = isLong
-        ? Math.min(atrStop, structuralStop - atr * 0.15)
-        : Math.max(atrStop, structuralStop + atr * 0.15);
+      stop = isLong ? structuralStop - atr * 0.15 : structuralStop + atr * 0.15;
       notes.push(
         `Stop anchored to structure at ${structuralStop.toFixed(2)} with a ${(atr * 0.15).toFixed(2)} buffer, rather than to a raw ATR multiple. ` +
         'Stops placed at round ATR distances sit exactly where everyone else\'s sit, which is where price goes to find liquidity.',
       );
     } else {
-      notes.push(`Stop set at ${atrMultiple.toFixed(1)}x ATR — no usable structural level within range.`);
+      notes.push(`Stop set at ${atrMultiple.toFixed(1)}x ATR (${Math.abs(price - atrStop).toFixed(2)}) — no usable structural level within range.`);
     }
+  } else {
+    notes.push(`Stop set at ${atrMultiple.toFixed(1)}x ATR — no swing or level structure identified.`);
+  }
+
+  // A stop wider than a third of the instrument's price is not a stop, it is a
+  // position with no exit plan. Rather than truncate it — which would silently
+  // move the invalidation point somewhere the analysis never justified — the
+  // engine declines the trade and says why.
+  const maxStopPct = 0.35;
+  if (Math.abs(price - stop) / price > maxStopPct) {
+    return {
+      direction: 'flat',
+      instrument: 'none',
+      entry: price,
+      stop: NaN,
+      targets: [],
+      riskReward: NaN,
+      riskFraction: 0,
+      size: 0,
+      notional: 0,
+      horizon,
+      expectedBars: 0,
+      notes: [
+        ...notes,
+        `No trade: the volatility-implied stop sits ${((Math.abs(price - stop) / price) * 100).toFixed(0)}% from entry, beyond the ${(maxStopPct * 100).toFixed(0)}% ceiling. ` +
+        `With ATR at ${((atr / price) * 100).toFixed(1)}% of price, any stop tight enough to size around would be inside the noise, and any stop outside the noise is too far to define risk. ` +
+        'This instrument is currently too disorderly for a defined-risk position at this horizon.',
+      ],
+    };
   }
 
   const riskPerUnit = Math.abs(price - stop);
@@ -259,7 +291,13 @@ function buildTargets(
     if (beyond) targets.push(extreme);
   }
 
-  return targets;
+  // A short target below zero is arithmetic, not analysis. Floor short targets
+  // at a fraction of spot and drop any that collapse onto the entry.
+  const floor = price * 0.05;
+  return targets
+    .map((t) => (isLong ? t : Math.max(t, floor)))
+    .filter((t, i, arr) => Number.isFinite(t) && t > 0 && arr.indexOf(t) === i)
+    .filter((t) => Math.abs(t - price) > price * 0.002);
 }
 
 /* ---------------------------------------------------------------------------

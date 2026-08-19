@@ -167,6 +167,45 @@ export function vwap(bars: readonly Bar[], anchorEvery = 0): VwapResult {
   return { vwap: vwapS, upper1, lower1, upper2, lower2 };
 }
 
+/** Rolling VWAP over a fixed lookback, with standard-deviation bands.
+ *
+ *  The session-anchored VWAP above is the right construction for intraday
+ *  bars. On a DAILY series it is the wrong tool: accumulating from the first
+ *  bar of a multi-year history produces a "VWAP" hundreds of percent below
+ *  spot for any instrument that has trended, which is arithmetically true and
+ *  analytically worthless. Traders working daily charts use a rolling or
+ *  event-anchored VWAP instead, which is what this provides. */
+export function rollingVwap(bars: readonly Bar[], period = 20): VwapResult {
+  const n = bars.length;
+  const tp = typicalPrice(bars);
+  const vwapS = nanArray(n);
+  const upper1 = nanArray(n);
+  const lower1 = nanArray(n);
+  const upper2 = nanArray(n);
+  const lower2 = nanArray(n);
+
+  for (let i = period - 1; i < n; i++) {
+    let pv = 0;
+    let pv2 = 0;
+    let vol = 0;
+    for (let j = i - period + 1; j <= i; j++) {
+      const v = bars[j].v || 1;
+      pv += tp[j] * v;
+      pv2 += tp[j] * tp[j] * v;
+      vol += v;
+    }
+    const vw = vol === 0 ? tp[i] : pv / vol;
+    const varr = vol === 0 ? 0 : Math.max(0, pv2 / vol - vw * vw);
+    const sd = Math.sqrt(varr);
+    vwapS[i] = vw;
+    upper1[i] = vw + sd;
+    lower1[i] = vw - sd;
+    upper2[i] = vw + 2 * sd;
+    lower2[i] = vw - 2 * sd;
+  }
+  return { vwap: vwapS, upper1, lower1, upper2, lower2 };
+}
+
 /** Relative volume: today's volume against the average of the last `period`. */
 export function relativeVolume(bars: readonly Bar[], period = 20): number {
   if (bars.length < period + 1) return NaN;

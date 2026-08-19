@@ -311,3 +311,10 @@ body {
   }
   .tape-track { animation: none; }
 }
+
+/* Compact table variant for narrow rail panels, where the viewport-based
+   Tailwind breakpoints would otherwise reserve more width than the container
+   actually has. */
+.dt.compact thead th { padding: 5px 5px; font-size: 8px; }
+.dt.compact tbody td { padding: 4px 5px; font-size: 10.5px; }
+.dt.compact { table-layout: auto; }

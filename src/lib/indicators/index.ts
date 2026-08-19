@@ -34,7 +34,7 @@ import {
 } from './volatility';
 import {
   obv, adLine, chaikinMoneyFlow, chaikinOscillator, mfi, forceIndex,
-  easeOfMovement, vwap, relativeVolume, volumeTrend, volumePriceConfirmation,
+  easeOfMovement, vwap, rollingVwap, relativeVolume, volumeTrend, volumePriceConfirmation,
   volumeProfile, klinger, dollarVolume, type VolumeProfile, type VwapResult,
 } from './volume';
 import {
@@ -146,7 +146,9 @@ export function computeSnapshot(bars: readonly Bar[]): IndicatorSnapshot {
   const bbRes = bollinger(c, 20, 2);
   const atrSeries = atr(bars, 14);
   const obvSeries = obv(bars);
-  const vwapRes = vwap(bars, 0);
+  // Rolling 20-bar VWAP: on a daily series an all-history anchor measures
+  // against a years-old average and is meaningless as a distance metric.
+  const vwapRes = rollingVwap(bars, 20);
 
   // Ichimoku positional bias.
   const cloudTop = last(ichi.cloudTop);
