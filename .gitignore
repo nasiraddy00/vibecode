@@ -3,6 +3,8 @@ node_modules/
 out/
 build/
 dist/
+# Single-file browser build; regenerate with `npm run build:standalone`.
+dist-standalone/
 .env
 .env.local
 .env*.local

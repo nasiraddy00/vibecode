@@ -71,6 +71,30 @@ npm run typecheck
 npm run build
 ```
 
+### Single-file browser build
+
+```bash
+npm run build:standalone
+```
+
+Compiles the whole terminal — engine, UI and the BTC backtest artefact — into
+one self-contained ~770 KB HTML file at
+`dist-standalone/meridian-terminal.html`. Open it directly in a browser; there
+is no server, no install and no network call except the Google Fonts
+stylesheet.
+
+This works because the engine is pure TypeScript with no server dependency
+once the data source is the simulator: indicators, signals, options pricing
+and backtest metrics all run client-side. It is the right way to hand someone
+a demo, and the wrong way to trade — the browser build has no path to a live
+feed at all, so it is permanently in simulator mode and says so in its banner
+and status strip.
+
+The three page views (`MarketCockpit`, `TickerDossier`, `BacktestReport`) are
+shared components rather than duplicates, so the browser build and the
+Next.js app render identical markup from identical analytics. `next/link` and
+`next/navigation` are aliased to hash-routing shims at bundle time.
+
 ---
 
 ## The $10 Bitcoin backtest
@@ -312,6 +336,8 @@ src/
     paper/                    paper blotter with live marks
     api/quotes/               batch quote endpoint
   components/                 panels, charts, gauges, tables (hand-rolled SVG)
+                              plus the three shared page views
+  standalone/                 browser-build shell: hash router, sync data layer
   lib/
     indicators/               ~2,000 lines of pure TA, NaN-padded, composable
     fundamentals/             valuation, quality, Piotroski, Altman, Beneish, DCF
@@ -325,6 +351,7 @@ src/
     paper/                    blotter marking and calibration
 tests/                        121 unit tests
 scripts/run-backtest.ts       backtest CLI
+scripts/build-standalone.mjs  single-file browser build
 ```
 
 ## Testing
