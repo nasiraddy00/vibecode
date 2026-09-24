@@ -18,7 +18,7 @@
     "backtest:btc": "tsx scripts/run-backtest.ts --symbol BTC-USD --capital 10"
   },
   "dependencies": {
-    "next": "^16.3.1",
+    "next": "^16.3.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

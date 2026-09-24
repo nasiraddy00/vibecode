@@ -33,6 +33,8 @@ const result = await build({
   define: {
     'process.env.NODE_ENV': '"production"',
     'process.env.MERIDIAN_OFFLINE': '"1"',
+    // No server to stream from, and the artifact sandbox blocks WebSockets.
+    'process.env.MERIDIAN_STANDALONE': '"1"',
     'process.env.MERIDIAN_CACHE_TTL': '"45"',
     'process.env.SEC_USER_AGENT': 'undefined',
     'process.env.FINNHUB_API_KEY': 'undefined',

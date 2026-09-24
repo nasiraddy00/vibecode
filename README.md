@@ -66,7 +66,7 @@ There is no all-or-nothing switch.
 
 ```bash
 npm run backtest:btc   # the $10 Bitcoin run
-npm test               # 121 unit tests
+npm test               # 140 unit tests
 npm run typecheck
 npm run build
 ```
@@ -149,6 +149,126 @@ sizing by how confident you feel.
 Bootstrap Monte Carlo over 5,000 resamples: 5th percentile $10.82, median
 $14.15, 95th percentile $18.69, probability of ending below the starting
 capital 1.5%, worst drawdown −27.3%.
+
+---
+
+## Adding real-time data
+
+**There is no connector or plugin to install.** Market data does not arrive
+through a Claude connector or skill — those cover Drive, Figma, GitHub and
+similar. Real-time prices come from a market data vendor's API, which means two
+things and only two things: a key in `.env.local`, and outbound network access
+to that vendor.
+
+### 1. Get a key
+
+| Vendor | Covers | Key needed | Free tier |
+|---|---|---|---|
+| **Binance** | Crypto | **none** | unlimited public market streams |
+| **Yahoo Finance** | Everything | **none** | unofficial, rate-limited, no SLA |
+| **CoinGecko** | Crypto | none (key raises limits) | 30 calls/min |
+| **Finnhub** | US equities, fundamentals, insider | `FINNHUB_API_KEY` | 60 calls/min + WebSocket |
+| **Polygon** | Equities, options chains, tick data | `POLYGON_API_KEY` | paid; the best options data |
+| **Alpha Vantage** | Equities, FX | `ALPHAVANTAGE_API_KEY` | 25 calls/day |
+
+The quickest path is Finnhub: free, two minutes to sign up, and it covers
+quotes, fundamentals, earnings and insider transactions in one key. Crypto
+needs nothing at all.
+
+```bash
+cp .env.example .env.local     # then paste your key in
+npm run dev                    # restart — .env.local is read at startup
+```
+
+Each feed flips its own badge from `SIM` to `LIVE` independently. There is no
+all-or-nothing switch, and the status strip at the bottom of every screen shows
+which are alive.
+
+### 2. Allow the outbound connection
+
+Keys are useless if the network blocks the vendor. If prices stay `SIM` with a
+valid key, check the status strip: it names the provider and the error. A `403`
+on connect is a network policy denying the host, not a bad key.
+
+On your own machine this is a non-issue. In a sandboxed or corporate
+environment, the vendor's hostname has to be allowed:
+`api.binance.com`, `stream.binance.com`, `query1.finance.yahoo.com`,
+`finnhub.io`, `api.coingecko.com`, `data.sec.gov`.
+
+### How the streaming works
+
+Two transports, chosen per symbol, behind one `useLiveQuote` hook:
+
+```
+crypto      browser ──WebSocket──▶ stream.binance.com     (public, no key)
+everything  browser ◀──SSE── your server ──▶ vendor API   (key stays server-side)
+```
+
+Crypto connects **browser-direct** because Binance's market streams are public.
+Proxying them through our own server would add a hop and a process to keep
+alive, to relay data that is already public.
+
+Equities cannot do that: the vendor needs a key, and a key that reaches the
+browser is a key that is published. So the server holds the upstream connection
+and fans out over server-sent events. SSE rather than a WebSocket because the
+data only flows one way — a socket would buy bidirectionality nobody needs and
+cost us the reconnect handling `EventSource` already does.
+
+Reconnects use **exponential backoff with full jitter**, capped at 30 seconds. A
+fixed backoff makes every client reconnect in lockstep after an outage, turning
+a blip into a thundering herd against the vendor.
+
+The price display states which mode it is in — `LIVE` (push stream), `POLLING`
+(periodic REST), `NO FEED`, or `STATIC` — because the difference matters to
+anyone deciding whether to act on the number.
+
+### What "real-time" honestly means here
+
+Free tiers are not real-time. Yahoo is delayed 15 minutes for most US equities;
+Finnhub's free tier gives you a WebSocket but throttles; only paid vendors
+deliver true tick-level data. The terminal will use whatever you give it and
+label it accurately — it will not call a 15-minute-delayed quote "live".
+
+---
+
+## The Trade call
+
+Every place a symbol appears — the search dropdown, the ticker header, screener
+rows, every idea table — carries a **TRADE** button. One click gives a single
+decision at `/trade/[symbol]`, with the reasoning written out. `Shift+Enter` in
+the search box goes straight there.
+
+The dossier shows you 40 analytics and lets you synthesise. The Trade call does
+the synthesis and commits: **BUY or SELL, LONG or SHORT**, how to express it,
+and the five numbers you need to act — entry, stop, target, reward-to-risk, and
+position size.
+
+Underneath it reads like a research note:
+
+- **The thesis** — what the weight of evidence says and why it matters *in this
+  regime*
+- **The case for** and **the case against** — the strongest evidence on both
+  sides, ranked. The counter-case is not optional; a note that argues one side
+  is marketing.
+- **Technical, fundamental, flow and volatility reads** — in prose
+- **What would prove this wrong** — the exact level, and why that level rather
+  than a round percentage
+- **How to express it** — instrument, size, and the options leg where one is
+  warranted
+
+Three things the generator will not do:
+
+**It will not smooth over a conflict.** The technical paragraph sorts readings
+by what they *argue*. Stringing "+DI below -DI" together with "trading above the
+cloud" using "and" reads as though they agree, when they are the two sides of
+the disagreement you most need to see. A split book opens by saying so.
+
+**It will not manufacture confidence.** Below the conviction floor it returns
+NO TRADE and argues why — and still shows both the bull and bear case, because
+on a no-trade those two competing cases are the entire content.
+
+**It will not hide the data problem.** A simulated run opens its disclosure with
+`PRICES ARE SIMULATED` in capitals and says "do not trade on this".
 
 ---
 
@@ -330,11 +450,13 @@ during development.
 src/
   app/
     page.tsx                  market cockpit
+    trade/[symbol]/           the decisive trade call
     ticker/[symbol]/          per-instrument dossier
     backtest/                 renders the artefact from artifacts/
     screener/                 full-universe engine run, filterable
     paper/                    paper blotter with live marks
     api/quotes/               batch quote endpoint
+    api/stream/               server-sent event tick stream
   components/                 panels, charts, gauges, tables (hand-rolled SVG)
                               plus the three shared page views
   standalone/                 browser-build shell: hash router, sync data layer
@@ -343,13 +465,14 @@ src/
     fundamentals/             valuation, quality, Piotroski, Altman, Beneish, DCF
     options/                  Black-Scholes, greeks, IV solver, chain analytics
     vol/                      VIX complex, cross-asset stress
-    signals/                  votes, regime, ensemble, trade plan
+    signals/                  votes, regime, ensemble, trade plan, analyst note
+    realtime/                 Binance WebSocket, SSE hook, tick model
     backtest/                 engine, metrics, Monte Carlo
     providers/                adapters, registry, simulator, health
     sentiment/                insider, institutional, social, news, analysts
     market/                   universe, cockpit, dossier, screener
     paper/                    blotter marking and calibration
-tests/                        121 unit tests
+tests/                        140 unit tests
 scripts/run-backtest.ts       backtest CLI
 scripts/build-standalone.mjs  single-file browser build
 ```
@@ -360,7 +483,7 @@ scripts/build-standalone.mjs  single-file browser build
 npm test
 ```
 
-121 tests. Indicator math is checked against hand-computed values (Wilder's RMA
+140 tests. Indicator math is checked against hand-computed values (Wilder's RMA
 recursion, WMA weighting, RSI boundary conditions, true range across a gap,
 ADX/DI ordering); Black-Scholes against textbook values to six decimals, with
 put-call parity, call/put gamma equality, and IV round-trip across 50
@@ -376,8 +499,8 @@ maximally overbought and generated short signals out of nothing.
 
 ## Keyboard
 
-`/` focus search · `F1` markets · `F2` signal · `F3` screener · `F4` backtest ·
-`F5` blotter · `Esc` dismiss
+`/` focus search · `Enter` dossier · `Shift+Enter` trade call · `F1` markets ·
+`F2` trade · `F3` signal · `F4` screener · `F5` backtest · `F6` blotter · `Esc` dismiss
 
 ## Configuration
 

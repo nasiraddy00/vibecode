@@ -20,6 +20,7 @@ import { simulateSeries, simulateQuote } from '../lib/providers/simulator';
 import { computeSnapshot, type IndicatorSnapshot } from '../lib/indicators';
 import { closes, last, sma } from '../lib/indicators/core';
 import { generateSignal } from '../lib/signals';
+import { writeAnalystNote } from '../lib/signals/analyst';
 import { assessVix, stressGauge, type VixComplex, type StressGauge } from '../lib/vol';
 import { mean } from '../lib/util/math';
 import {
@@ -568,4 +569,48 @@ export function runScreener(): ScreenerRow[] {
     .sort((a, b) => b.conviction - a.conviction);
 
   return screenerCache;
+}
+
+/* ---------------------------------------------------------------------------
+   TRADE CALL
+   ------------------------------------------------------------------------- */
+
+import type { TradeView } from '../components/TradeVerdict';
+
+const tradeCache = new Map<string, TradeView>();
+
+export function buildTradeCall(symbolRaw: string): TradeView | null {
+  const d = buildDossier(symbolRaw);
+  if (!d) return null;
+
+  const hit = tradeCache.get(d.instrument.symbol);
+  if (hit) return hit;
+
+  const note = writeAnalystNote({
+    signal: d.signal,
+    snapshot: d.snapshot,
+    name: d.instrument.name,
+    assetClass: d.instrument.assetClass,
+    fundamentals: d.fundamentals,
+    earnings: d.earnings,
+    insider: d.insider,
+    institutional: d.institutional,
+    social: d.social,
+    news: d.news,
+    iv: d.iv,
+    vix: d.vix,
+    simulated: true,
+  });
+
+  const v: TradeView = {
+    instrument: d.instrument,
+    note,
+    signal: d.signal,
+    snapshot: d.snapshot,
+    bars: d.bars,
+    simulated: true,
+    source: 'simulator',
+  };
+  tradeCache.set(d.instrument.symbol, v);
+  return v;
 }

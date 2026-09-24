@@ -16,6 +16,7 @@ import { VoteTable, AttributionChart } from '@/components/VoteTable';
 import { Sparkline } from '@/components/Sparkline';
 import { Meter, ScoreBar } from '@/components/Gauge';
 import { TradeButton } from '@/components/TradeButton';
+import { LivePrice } from '@/components/LivePrice';
 import type { Bar, Provenance, SignalResult } from '@/lib/types';
 import type { Instrument } from '@/lib/market/universe';
 import type { IndicatorSnapshot } from '@/lib/indicators';
@@ -173,7 +174,6 @@ function Legend({ colour, label }: { colour: string; label: string }) {
 function InstrumentHeader({ d }: { d: DossierView }) {
   const q = d.quote;
   const s = d.snapshot;
-  const up = q.changePct >= 0;
 
   return (
     <div className="border-b border-hairline bg-terminal px-3 py-2.5">
@@ -196,14 +196,11 @@ function InstrumentHeader({ d }: { d: DossierView }) {
         </div>
 
         <div className="flex items-end gap-5">
-          <div>
-            <div className={`num text-3xl font-bold leading-none ${up ? 'text-long' : 'text-short'}`}>
-              {fmtPrice(q.price)}
-            </div>
-            <div className={`num text-[12px] mt-1.5 ${up ? 'text-long' : 'text-short'}`}>
-              {q.change >= 0 ? '+' : ''}{fmtPrice(q.change)} ({fmtPct(q.changePct)})
-            </div>
-          </div>
+          <LivePrice
+            symbol={d.instrument.symbol}
+            fallbackPrice={q.price}
+            fallbackChangePct={q.changePct}
+          />
           <Sparkline data={d.bars.slice(-90).map((b) => b.c)} width={150} height={44} />
         </div>
 

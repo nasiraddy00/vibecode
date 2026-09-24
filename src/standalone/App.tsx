@@ -13,11 +13,12 @@ import { CommandBar } from '@/components/CommandBar';
 import { StatusStrip } from './StatusStrip';
 import { MarketCockpit } from '@/components/MarketCockpit';
 import { TickerDossier } from '@/components/TickerDossier';
+import { TradeVerdict } from '@/components/TradeVerdict';
 import { BacktestReport, type Artefact } from '@/components/BacktestReport';
 import { ScreenerClient } from '@/app/screener/ScreenerClient';
 import { PaperClient } from '@/app/paper/PaperClient';
 import { Panel } from '@/components/Panel';
-import { buildCockpit, buildDossier, runScreener } from './data';
+import { buildCockpit, buildDossier, runScreener, buildTradeCall } from './data';
 import btcRun from '../../artifacts/backtest-BTCUSD-1d.json';
 
 /** Defers an expensive synchronous computation by one paint, so the terminal
@@ -53,6 +54,9 @@ export function App() {
 
   const route = useMemo(() => {
     const clean = path.split('?')[0];
+    if (clean.startsWith('/trade/')) {
+      return { view: 'trade' as const, symbol: decodeURIComponent(clean.slice('/trade/'.length)) };
+    }
     if (clean.startsWith('/ticker/')) {
       return { view: 'ticker' as const, symbol: decodeURIComponent(clean.slice('/ticker/'.length)) };
     }
@@ -73,6 +77,7 @@ export function App() {
       <CommandBar />
       <main className="flex-1 overflow-y-auto overflow-x-hidden bg-void">
         {route.view === 'home' && <HomeView />}
+        {route.view === 'trade' && <TradeView symbol={route.symbol} />}
         {route.view === 'ticker' && <TickerView symbol={route.symbol} />}
         {route.view === 'screener' && <ScreenerView />}
         {route.view === 'backtest' && <BacktestReport run={btcRun as unknown as Artefact} />}
@@ -95,28 +100,15 @@ function TickerView({ symbol }: { symbol: string }) {
     [symbol],
   );
   if (!result) return <Loading what={`the full dossier for ${symbol.toUpperCase()}`} />;
-  if (!result.d) {
-    return (
-      <div className="p-6 max-w-2xl">
-        <Panel title="Unknown instrument" accent>
-          <div className="p-5">
-            <p className="text-[12.5px] text-ink mb-2">
-              <span className="num font-bold text-amber">{symbol.toUpperCase()}</span> is not in this
-              build&apos;s instrument universe.
-            </p>
-            <p className="text-[11px] text-ink-3 leading-relaxed">
-              The browser build ships a fixed universe of 99 instruments across equities, ETFs,
-              indexes, crypto, commodities, FX and rates. Try the search bar above — it accepts
-              shorthands like <span className="num text-ink-2">btc</span>,{' '}
-              <span className="num text-ink-2">gold</span> and{' '}
-              <span className="num text-ink-2">sp500</span>.
-            </p>
-          </div>
-        </Panel>
-      </div>
-    );
-  }
+  if (!result.d) return <UnknownInstrument symbol={symbol} />;
   return <TickerDossier d={result.d} />;
+}
+
+function TradeView({ symbol }: { symbol: string }) {
+  const result = useDeferred(() => ({ v: buildTradeCall(symbol) }), [symbol]);
+  if (!result) return <Loading what={`the trade call for ${symbol.toUpperCase()}`} />;
+  if (!result.v) return <UnknownInstrument symbol={symbol} />;
+  return <TradeVerdict v={result.v} />;
 }
 
 function ScreenerView() {
@@ -131,6 +123,28 @@ function ScreenerView() {
         accent
       >
         <ScreenerClient rows={rows} />
+      </Panel>
+    </div>
+  );
+}
+
+function UnknownInstrument({ symbol }: { symbol: string }) {
+  return (
+    <div className="p-6 max-w-2xl">
+      <Panel title="Unknown instrument" accent>
+        <div className="p-5">
+          <p className="text-[12.5px] text-ink mb-2">
+            <span className="num font-bold text-amber">{symbol.toUpperCase()}</span> is not in this
+            build&apos;s instrument universe.
+          </p>
+          <p className="text-[11px] text-ink-3 leading-relaxed">
+            The browser build ships a fixed universe of 99 instruments across equities, ETFs,
+            indexes, crypto, commodities, FX and rates. Try the search bar above — it accepts
+            shorthands like <span className="num text-ink-2">btc</span>,{' '}
+            <span className="num text-ink-2">gold</span> and{' '}
+            <span className="num text-ink-2">sp500</span>.
+          </p>
+        </div>
       </Panel>
     </div>
   );
