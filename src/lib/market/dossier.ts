@@ -5,6 +5,7 @@
 
 import type { Bar, SignalResult, Provenance } from '../types';
 import { resolveInstrument, type Instrument } from './universe';
+import { resolveAny } from './resolve';
 import { getBars, getQuote, type QuoteResult } from '../providers';
 import { computeSnapshot, type IndicatorSnapshot } from '../indicators';
 import { generateSignal } from '../signals';
@@ -63,7 +64,10 @@ export async function buildDossier(
   symbolRaw: string,
   opts: { horizon?: 'intraday' | 'swing' | 'position'; equity?: number } = {},
 ): Promise<Dossier | null> {
-  const inst = resolveInstrument(symbolRaw);
+  // Curated first; anything else goes to the vendor lookup, so the dossier
+  // and the trade call are available for any listed security, not just the
+  // names shipped in the universe.
+  const inst = resolveInstrument(symbolRaw) ?? await resolveAny(symbolRaw);
   if (!inst) return null;
 
   const now = Date.now();

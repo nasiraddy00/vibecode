@@ -28,7 +28,7 @@ const PRESETS = [
   { id: 'nearhigh', label: 'Near 52w high', test: (r: ScreenerRow) => r.pctFrom52wHigh > -5 },
 ] as const;
 
-const CLASSES = ['all', 'equity', 'etf', 'index', 'crypto', 'commodity', 'fx'] as const;
+const CLASSES = ['all', 'equity', 'etf', 'bond', 'index', 'crypto', 'commodity', 'fx'] as const;
 
 const ACTION_STYLE: Record<string, string> = {
   'STRONG BUY': 'bg-long text-void',

@@ -10,6 +10,7 @@ import {
   type PaperPosition, type BlotterSummary,
 } from '@/lib/paper';
 import { searchInstruments, resolveInstrument } from '@/lib/market/universe';
+import type { SearchHit } from '@/lib/market/resolve';
 
 export function PaperClient() {
   const [positions, setPositions] = useState<PaperPosition[]>([]);
@@ -353,11 +354,59 @@ function TicketForm({ onSubmit }: { onSubmit: (p: PaperPosition) => void }) {
   const [conviction, setConviction] = useState('50');
   const [error, setError] = useState('');
 
-  const suggestions = symbol.trim() ? searchInstruments(symbol, 5) : [];
+  // The ticket accepts any security the terminal can resolve, not only the
+  // curated names: curated matches answer instantly, vendor matches arrive
+  // behind them.
+  const [remote, setRemote] = useState<SearchHit[]>([]);
+
+  useEffect(() => {
+    const q = symbol.trim();
+    if (!q) { setRemote([]); return; }
+
+    const ctl = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=6`, {
+          signal: ctl.signal,
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { hits?: SearchHit[] };
+        setRemote(data.hits ?? []);
+      } catch {
+        // Keep whatever the curated search already gave us.
+      }
+    }, 200);
+
+    return () => { clearTimeout(timer); ctl.abort(); };
+  }, [symbol]);
+
+  const local: SearchHit[] = symbol.trim()
+    ? searchInstruments(symbol, 5).map((i) => ({
+      symbol: i.symbol, name: i.name, assetClass: i.assetClass,
+      curated: !i.dynamic, exchange: i.venue,
+    }))
+    : [];
+
+  const suggestions: SearchHit[] = local.length
+    ? local
+    : remote.slice(0, 5);
+
+  /** Curated entry, else an exact vendor match from the live search. */
+  const resolveTicket = (raw: string): SearchHit | undefined => {
+    const inst = resolveInstrument(raw);
+    if (inst) {
+      return {
+        symbol: inst.symbol, name: inst.name, assetClass: inst.assetClass,
+        curated: !inst.dynamic, exchange: inst.venue,
+      };
+    }
+    const want = raw.trim().toUpperCase();
+    return remote.find((h) => h.symbol.toUpperCase() === want);
+  };
 
   const submit = (e: React.FormEvent): void => {
     e.preventDefault();
-    const inst = resolveInstrument(symbol);
+    const inst = resolveTicket(symbol);
     if (!inst) { setError(`Unknown instrument "${symbol}"`); return; }
 
     const qty = Number(quantity);
@@ -403,7 +452,7 @@ function TicketForm({ onSubmit }: { onSubmit: (p: PaperPosition) => void }) {
             className="ticket-input"
             spellCheck={false}
           />
-          {suggestions.length > 0 && symbol && !resolveInstrument(symbol) && (
+          {suggestions.length > 0 && symbol && !resolveTicket(symbol) && (
             <div className="absolute z-20 mt-0.5 bg-overlay border border-hairline-bright min-w-full">
               {suggestions.map((s) => (
                 <button

@@ -368,3 +368,95 @@ export function foldBars(bars: readonly Bar[], factor: number): Bar[] {
   }
   return out;
 }
+
+/* ---------------------------------------------------------------------------
+   SYMBOL SEARCH — the open-ended lookup that lets the terminal address any
+   listed security rather than only the curated universe.
+
+   Two vendors, deliberately: Finnhub covers US equities and ETFs with clean
+   type labels, Yahoo covers everything else (indexes, futures, FX, bonds,
+   crypto, and every non-US listing). Results are normalised into one shape.
+   ------------------------------------------------------------------------- */
+
+export interface SymbolHit {
+  /** The symbol as the price providers expect it. */
+  symbol: string;
+  name: string;
+  /** Vendor's own type string, kept verbatim for inference and display. */
+  type: string;
+  exchange?: string;
+  currency?: string;
+  source: 'finnhub' | 'yahoo';
+}
+
+interface FinnhubSearchResponse {
+  count: number;
+  result: { description: string; displaySymbol: string; symbol: string; type: string }[];
+}
+
+export async function finnhubSearch(query: string): Promise<SymbolHit[]> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) throw new ProviderError('FINNHUB_API_KEY not configured', 'finnhub');
+  const url = `https://finnhub.io/api/v1/search?q=${encodeURIComponent(query)}&exchange=US&token=${key}`;
+  const t0 = Date.now();
+  try {
+    const d = await fetchJson<FinnhubSearchResponse>(url, { provider: 'finnhub', timeoutMs: 8000 });
+    recordSuccess('finnhub', Date.now() - t0);
+    return (d.result ?? [])
+      // Finnhub returns option and warrant lines for common tickers; those
+      // are not tradable instruments in this terminal's sense.
+      .filter((r) => r.symbol && !r.symbol.includes('.') && !/WARRANT|RIGHT/i.test(r.type))
+      .map((r) => ({
+        symbol: r.displaySymbol || r.symbol,
+        name: r.description,
+        type: r.type || 'Common Stock',
+        source: 'finnhub' as const,
+      }));
+  } catch (err) {
+    recordFailure('finnhub', (err as Error).message);
+    throw err;
+  }
+}
+
+interface YahooSearchResponse {
+  quotes?: {
+    symbol?: string;
+    shortname?: string;
+    longname?: string;
+    quoteType?: string;
+    typeDisp?: string;
+    exchDisp?: string;
+    exchange?: string;
+  }[];
+}
+
+export async function yahooSearch(query: string): Promise<SymbolHit[]> {
+  const url =
+    `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}` +
+    `&quotesCount=20&newsCount=0&listsCount=0`;
+  const t0 = Date.now();
+  try {
+    const d = await fetchJson<YahooSearchResponse>(url, { provider: 'yahoo', timeoutMs: 8000 });
+    recordSuccess('yahoo', Date.now() - t0);
+    return (d.quotes ?? [])
+      .filter((q) => q.symbol)
+      .map((q) => ({
+        symbol: q.symbol as string,
+        name: q.longname || q.shortname || (q.symbol as string),
+        type: q.quoteType || q.typeDisp || 'EQUITY',
+        exchange: q.exchDisp || q.exchange,
+        source: 'yahoo' as const,
+      }));
+  } catch (err) {
+    recordFailure('yahoo', (err as Error).message);
+    throw err;
+  }
+}
+
+/** Confirm a symbol exists and recover its display metadata, for the case
+ *  where the user types a ticker directly rather than picking a search hit. */
+export async function yahooLookup(symbol: string): Promise<SymbolHit | undefined> {
+  const hits = await yahooSearch(symbol);
+  const want = symbol.trim().toUpperCase();
+  return hits.find((h) => h.symbol.toUpperCase() === want) ?? hits[0];
+}

@@ -3,8 +3,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { searchInstruments, type Instrument } from '@/lib/market/universe';
+import { searchInstruments } from '@/lib/market/universe';
+import type { SearchHit } from '@/lib/market/resolve';
 import { TradeButton } from '@/components/TradeButton';
+
+/** The single-file browser build has no server, so there is no /api/search
+ *  to call; it searches the bundled universe only. */
+const STANDALONE =
+  typeof process !== 'undefined' && process.env?.MERIDIAN_STANDALONE === '1';
 
 const NAV = [
   { key: 'F1', label: 'MARKETS', href: '/' },
@@ -19,15 +25,48 @@ export function CommandBar() {
   const router = useRouter();
   const pathname = usePathname();
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<Instrument[]>([]);
+  const [results, setResults] = useState<SearchHit[]>([]);
   const [open, setOpen] = useState(false);
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
 
+  // Curated matches render on the keystroke; the vendor-backed search comes
+  // in behind them and widens the list to every listed security. The local
+  // answer is never replaced by an empty remote one, so a blocked feed or a
+  // slow round trip degrades to the shipped universe instead of to nothing.
   useEffect(() => {
-    setResults(query.trim() ? searchInstruments(query, 9) : []);
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
+      setCursor(0);
+      return;
+    }
+
+    const local: SearchHit[] = searchInstruments(q, 9).map((i) => ({
+      symbol: i.symbol, name: i.name, assetClass: i.assetClass,
+      curated: !i.dynamic, exchange: i.venue,
+    }));
+    setResults(local);
     setCursor(0);
+
+    if (STANDALONE) return;
+
+    const ctl = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=12`, {
+          signal: ctl.signal,
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { hits?: SearchHit[] };
+        if (data.hits?.length) setResults(data.hits);
+      } catch {
+        // Aborted, offline, or no route (standalone build) — keep the local list.
+      }
+    }, 180);
+
+    return () => { clearTimeout(timer); ctl.abort(); };
   }, [query]);
 
   // Keyboard-first, the way a terminal should be: "/" focuses search from
@@ -153,6 +192,14 @@ export function CommandBar() {
                 >
                   <span className="num text-[11.5px] font-bold text-amber w-24 shrink-0 truncate">{r.symbol}</span>
                   <span className="text-[11px] text-ink-2 flex-1 truncate">{r.name}</span>
+                  {!r.curated && (
+                    <span
+                      className="label-xs shrink-0 text-ink-4 border border-hairline px-1"
+                      title="Found via the data vendor. Prices are live; the fallback calibration is inferred, not hand-set."
+                    >
+                      EXT
+                    </span>
+                  )}
                   <span className="label-xs shrink-0">{r.assetClass}</span>
                 </button>
                 <TradeButton symbol={r.symbol} size="xs" />

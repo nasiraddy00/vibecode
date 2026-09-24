@@ -15,6 +15,7 @@
 import type { Bar, Quote, Timeframe } from '../types';
 import type { Instrument } from '../market/universe';
 import { resolveInstrument } from '../market/universe';
+import { resolveAny, calibrateFromBars } from '../market/resolve';
 import { simulateSeries, simulateQuote } from './simulator';
 import {
   yahooBars, yahooQuote, binanceBars, binanceQuote, coingeckoBars,
@@ -69,7 +70,9 @@ export async function getBars(
   limit?: number,
 ): Promise<BarsResult> {
   init();
-  const inst = typeof symbolOrInst === 'string' ? resolveInstrument(symbolOrInst) : symbolOrInst;
+  const inst = typeof symbolOrInst === 'string'
+    ? (resolveInstrument(symbolOrInst) ?? await resolveAny(symbolOrInst))
+    : symbolOrInst;
   if (!inst) throw new Error(`Unknown instrument: ${String(symbolOrInst)}`);
 
   const count = limit ?? DEFAULT_BAR_COUNT[tf];
@@ -85,6 +88,7 @@ export async function getBars(
     try {
       const bars = await step.run(inst, tf, count);
       if (bars.length >= 20) {
+        calibrateFromBars(inst, bars);
         const result: BarsResult = {
           bars, provenance: 'live', source: step.id, asOf: Date.now(),
         };
@@ -142,7 +146,9 @@ export interface QuoteResult extends Quote {
 /** Fetch a quote, falling back through the provider chain. */
 export async function getQuote(symbolOrInst: string | Instrument): Promise<QuoteResult> {
   init();
-  const inst = typeof symbolOrInst === 'string' ? resolveInstrument(symbolOrInst) : symbolOrInst;
+  const inst = typeof symbolOrInst === 'string'
+    ? (resolveInstrument(symbolOrInst) ?? await resolveAny(symbolOrInst))
+    : symbolOrInst;
   if (!inst) throw new Error(`Unknown instrument: ${String(symbolOrInst)}`);
 
   const cacheKey = `quote:${inst.symbol}`;
@@ -156,7 +162,9 @@ export async function getQuote(symbolOrInst: string | Instrument): Promise<Quote
     const chain: { id: string; run: (i: Instrument) => Promise<Quote> }[] =
       inst.assetClass === 'crypto' && inst.binanceSymbol
         ? [{ id: 'binance', run: binanceQuote }, { id: 'yahoo', run: yahooQuote }]
-        : finnhubConfigured() && (inst.assetClass === 'equity' || inst.assetClass === 'etf')
+        : finnhubConfigured()
+          && (inst.assetClass === 'equity' || inst.assetClass === 'etf'
+            || inst.assetClass === 'bond')
           ? [{ id: 'finnhub', run: finnhubQuote }, { id: 'yahoo', run: yahooQuote }]
           : [{ id: 'yahoo', run: yahooQuote }];
 

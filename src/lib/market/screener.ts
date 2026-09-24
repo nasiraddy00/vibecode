@@ -106,10 +106,39 @@ async function screenOne(inst: Instrument): Promise<ScreenerRow | null> {
   }
 }
 
+/* --- what the screener is allowed to look at -----------------------------
+   Every name screened is one live bar request. With a few hundred
+   instruments and free-tier vendors that is the difference between a screen
+   that returns and one that gets the key rate-limited, so the universe is
+   trimmed to what is actually screenable rather than to whatever fits.
+   ------------------------------------------------------------------------- */
+
+/** Volatility indexes: not directly tradable, and their mean reversion would
+ *  dominate any momentum ranking. They inform the regime instead. */
+const VOL_INDEXES = new Set(['VIX', 'VIX3M', 'VIX9D', 'VVIX', 'SKEW', 'OVX', 'GVZ']);
+
+/** Leveraged and inverse funds are a linear function of an underlying that is
+ *  already in the list. Screening both prints the same idea twice, once with
+ *  three times the volatility and a decay term the ranking does not model. */
+const LEVERAGED = new Set([
+  'TQQQ', 'SQQQ', 'SPXL', 'SPXS', 'SOXL', 'SOXS', 'TNA', 'TZA', 'UPRO', 'LABU',
+  'UVXY', 'VXX', 'SVXY',
+]);
+
+export function screenableUniverse(): Instrument[] {
+  return ALL_INSTRUMENTS.filter((i) =>
+    // Rates are yields, not a tradeable price series.
+    i.assetClass !== 'rate'
+    && !VOL_INDEXES.has(i.symbol)
+    && !LEVERAGED.has(i.symbol)
+    // Dynamic entries are whatever a user happened to look up; they are not
+    // part of a market-wide screen.
+    && !i.dynamic);
+}
+
 export async function runScreener(): Promise<ScreenerRow[]> {
-  // Rates have no tradeable price series in this universe; exclude them.
-  const universe = ALL_INSTRUMENTS.filter((i) => i.assetClass !== 'rate');
-  const rows = await mapLimit(universe, 6, screenOne);
+  const universe = screenableUniverse();
+  const rows = await mapLimit(universe, 8, screenOne);
   return rows
     .filter((r): r is ScreenerRow => r !== null)
     .sort((a, b) => b.conviction - a.conviction);

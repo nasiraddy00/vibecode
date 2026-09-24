@@ -14,6 +14,7 @@
 
 import { getQuotes } from '@/lib/providers';
 import { resolveInstrument } from '@/lib/market/universe';
+import { resolveAny } from '@/lib/market/resolve';
 import type { Tick } from '@/lib/realtime/types';
 
 // Route handlers are uncached by default in Next 16, but a stream must never
@@ -28,13 +29,17 @@ const MAX_DURATION_MS = 15 * 60 * 1000;
 
 export async function GET(request: Request): Promise<Response> {
   const { searchParams } = new URL(request.url);
-  const symbols = (searchParams.get('symbols') ?? '')
+  const requested = (searchParams.get('symbols') ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
-    .slice(0, MAX_SYMBOLS)
-    .map((s) => resolveInstrument(s)?.symbol)
-    .filter((s): s is string => Boolean(s));
+    .slice(0, MAX_SYMBOLS);
+
+  // A dynamically resolved symbol may not be registered in this process yet
+  // — the page that discovered it can have been rendered by another worker.
+  const symbols = (await Promise.all(
+    requested.map(async (s) => (resolveInstrument(s) ?? await resolveAny(s))?.symbol),
+  )).filter((s): s is string => Boolean(s));
 
   if (!symbols.length) {
     return new Response(

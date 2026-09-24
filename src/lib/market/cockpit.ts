@@ -11,8 +11,8 @@ import type { Bar, Quote, AssetClass, Provenance } from '../types';
 import type { SignalResult } from '../types';
 import { getBars, getQuote, type BarsResult } from '../providers';
 import {
-  ALL_INSTRUMENTS, INDEXES, CRYPTO, COMMODITIES, FX, SECTOR_ETFS,
-  BENCHMARK_ETFS, EQUITIES, HOME_PANELS, resolveInstrument, type Instrument,
+  ALL_INSTRUMENTS, INDEXES, INTL_INDEXES, CRYPTO, COMMODITIES, FX, SECTOR_ETFS,
+  BENCHMARK_ETFS, EQUITIES, BONDS, HOME_PANELS, resolveInstrument, type Instrument,
 } from './universe';
 import { generateSignal } from '../signals';
 import { assessVix, stressGauge, type VixComplex, type StressGauge } from '../vol';
@@ -106,6 +106,8 @@ export interface CockpitData {
   commodities: TickerRow[];
   fx: TickerRow[];
   rates: TickerRow[];
+  bonds: TickerRow[];
+  world: TickerRow[];
   sectors: SectorRow[];
   vix: VixComplex;
   stress: StressGauge;
@@ -115,6 +117,7 @@ export interface CockpitData {
     crypto: TradeIdea[];
     indexes: TradeIdea[];
     commodities: TradeIdea[];
+    bonds: TradeIdea[];
   };
   playbook: SessionPlaybook;
   mode: 'live' | 'mixed' | 'simulated';
@@ -541,13 +544,15 @@ function buildHeadline(
 
 export async function buildCockpit(): Promise<CockpitData> {
   const [
-    indexes, crypto, commodities, fx, rates, sectors, vix, breadth,
+    indexes, crypto, commodities, fx, rates, bonds, world, sectors, vix, breadth,
   ] = await Promise.all([
     buildRows(HOME_PANELS.indexes),
     buildRows(HOME_PANELS.crypto),
     buildRows(HOME_PANELS.commodities),
     buildRows(HOME_PANELS.fx),
     buildRows(HOME_PANELS.rates),
+    buildRows(HOME_PANELS.bonds),
+    buildRows(HOME_PANELS.world),
     buildSectors(),
     buildVix(),
     computeBreadth(),
@@ -568,26 +573,37 @@ export async function buildCockpit(): Promise<CockpitData> {
     breadth: breadth.above50,
   });
 
-  const [equityIdeas, cryptoIdeas, indexIdeas, commodityIdeas] = await Promise.all([
+  // Volatility indexes are inputs to the regime read, not things to rank as
+  // trades: they are not directly tradable and their mean reversion would
+  // dominate any momentum screen.
+  const VOL_INDEXES = new Set(['VIX', 'VIX3M', 'VIX9D', 'VVIX', 'SKEW', 'OVX', 'GVZ']);
+
+  const [equityIdeas, cryptoIdeas, indexIdeas, commodityIdeas, bondIdeas] = await Promise.all([
     rankIdeas([...EQUITIES, ...BENCHMARK_ETFS], 10),
     rankIdeas(CRYPTO, 10),
-    rankIdeas([...INDEXES.filter((i) => i.assetClass === 'index' && i.symbol !== 'VIX3M' && i.symbol !== 'VIX9D' && i.symbol !== 'VVIX'), ...SECTOR_ETFS], 10),
+    rankIdeas([
+      ...INDEXES.filter((i) => i.assetClass === 'index' && !VOL_INDEXES.has(i.symbol)),
+      ...INTL_INDEXES,
+      ...SECTOR_ETFS,
+    ], 10),
     rankIdeas(COMMODITIES, 10),
+    rankIdeas(BONDS, 10),
   ]);
 
-  const allRows = [...indexes, ...crypto, ...commodities, ...fx, ...rates];
+  const allRows = [...indexes, ...crypto, ...commodities, ...fx, ...rates, ...bonds, ...world];
   const anySimulated = allRows.some((r) => r.provenance === 'simulated');
   const allSimulated = allRows.length > 0 && allRows.every((r) => r.provenance === 'simulated');
 
   return {
     asOf: Date.now(),
-    indexes, crypto, commodities, fx, rates, sectors,
+    indexes, crypto, commodities, fx, rates, bonds, world, sectors,
     vix, stress, breadth,
     ideas: {
       equities: equityIdeas,
       crypto: cryptoIdeas,
       indexes: indexIdeas,
       commodities: commodityIdeas,
+      bonds: bondIdeas,
     },
     playbook: buildPlaybook(indexes, vix, breadth, sectors, stress, crypto),
     mode: allSimulated ? 'simulated' : anySimulated ? 'mixed' : 'live',

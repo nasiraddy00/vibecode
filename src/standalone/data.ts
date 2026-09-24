@@ -14,7 +14,8 @@
 import type { Bar, Provenance, AssetClass } from '../lib/types';
 import {
   ALL_INSTRUMENTS, INDEXES, CRYPTO, COMMODITIES, FX, SECTOR_ETFS,
-  BENCHMARK_ETFS, EQUITIES, HOME_PANELS, resolveInstrument, type Instrument,
+  BENCHMARK_ETFS, EQUITIES, BONDS, INTL_INDEXES, HOME_PANELS, resolveInstrument,
+  type Instrument,
 } from '../lib/market/universe';
 import { simulateSeries, simulateQuote } from '../lib/providers/simulator';
 import { computeSnapshot, type IndicatorSnapshot } from '../lib/indicators';
@@ -363,11 +364,16 @@ export interface CockpitData {
   commodities: TickerRow[];
   fx: TickerRow[];
   rates: TickerRow[];
+  bonds: TickerRow[];
+  world: TickerRow[];
   sectors: SectorRow[];
   vix: VixComplex;
   stress: StressGauge;
   breadth: Breadth;
-  ideas: { equities: TradeIdea[]; crypto: TradeIdea[]; indexes: TradeIdea[]; commodities: TradeIdea[] };
+  ideas: {
+    equities: TradeIdea[]; crypto: TradeIdea[]; indexes: TradeIdea[];
+    commodities: TradeIdea[]; bonds: TradeIdea[];
+  };
   playbook: SessionPlaybook;
 }
 
@@ -381,6 +387,8 @@ export function buildCockpit(): CockpitData {
   const commodities = rowsFor(HOME_PANELS.commodities);
   const fx = rowsFor(HOME_PANELS.fx);
   const rates = rowsFor(HOME_PANELS.rates);
+  const bonds = rowsFor(HOME_PANELS.bonds);
+  const world = rowsFor(HOME_PANELS.world);
   const sectors = buildSectors();
   const vix = buildVix();
   const breadth = computeBreadth();
@@ -402,15 +410,21 @@ export function buildCockpit(): CockpitData {
 
   cockpitCache = {
     asOf: Date.now(),
-    indexes, crypto, commodities, fx, rates, sectors, vix, stress, breadth,
+    indexes, crypto, commodities, fx, rates, bonds, world, sectors, vix, stress, breadth,
     ideas: {
       equities: rankIdeas([...EQUITIES, ...BENCHMARK_ETFS], 10),
       crypto: rankIdeas(CRYPTO, 10),
       indexes: rankIdeas(
-        [...INDEXES.filter((i) => i.assetClass === 'index' && !['VIX3M', 'VIX9D', 'VVIX'].includes(i.symbol)), ...SECTOR_ETFS],
+        [
+          ...INDEXES.filter((i) => i.assetClass === 'index'
+            && !['VIX', 'VIX3M', 'VIX9D', 'VVIX', 'SKEW', 'OVX', 'GVZ'].includes(i.symbol)),
+          ...INTL_INDEXES,
+          ...SECTOR_ETFS,
+        ],
         10,
       ),
       commodities: rankIdeas(COMMODITIES, 10),
+      bonds: rankIdeas(BONDS, 10),
     },
     playbook: buildPlaybook(indexes, vix, breadth, sectors, stress, crypto),
   };

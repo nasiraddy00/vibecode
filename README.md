@@ -195,6 +195,24 @@ environment, the vendor's hostname has to be allowed:
 `api.binance.com`, `stream.binance.com`, `query1.finance.yahoo.com`,
 `finnhub.io`, `api.coingecko.com`, `data.sec.gov`.
 
+### 3. Diagnose it
+
+```bash
+npm run doctor
+```
+
+Probes one instrument per provider path and says what is live, what is not,
+and why. It distinguishes the two failures that look identical on the wire and
+need opposite fixes:
+
+- **A keyless provider refused.** Yahoo and Binance need no credentials, so a
+  `403` from them cannot be a key problem. It is the network blocking the host.
+- **A credentialled provider refused.** Could be the key or the network —
+  the doctor says so rather than guessing.
+
+That distinction is the whole diagnosis. If Yahoo is refused, no key will fix
+it and there is nothing to debug in this repo: open the egress policy.
+
 ### How the streaming works
 
 Two transports, chosen per symbol, behind one `useLiveQuote` hook:
@@ -230,6 +248,41 @@ deliver true tick-level data. The terminal will use whatever you give it and
 label it accurately — it will not call a 15-minute-delayed quote "live".
 
 ---
+
+## What you can trade
+
+446 curated instruments, and an open-ended lookup for everything else.
+
+| Class | Count | What is in it |
+|---|---|---|
+| Equities | 163 | S&P 100 plus the names that carry real retail volume |
+| ETFs | 100 | Sector, industry, factor, international, commodity, crypto wrappers, leveraged |
+| Bonds | 56 | The treasury ladder, TIPS, IG and high-yield credit, munis, mortgages, EM, floating rate, converts |
+| Crypto | 43 | Majors through to the liquid memecoins, Binance pair where one exists |
+| Indexes | 29 | US benchmarks, the volatility complex, 16 international indexes |
+| Commodities | 27 | Metals, the full energy strip, grains, softs, livestock |
+| FX | 24 | G10 majors, the crosses that matter, EM |
+| Rates | 4 | The treasury curve as yields, not prices |
+
+**Anything not on that list still works.** Type any ticker into the command
+bar and it resolves through the vendors' own symbol search — international
+listings, ADRs, closed-end funds, small caps, obscure ETFs. The terminal
+synthesises an instrument, marks it `EXT` in the search results, and runs the
+same engine on it. The only difference is that its fallback calibration is
+inferred from its own price history rather than set by hand.
+
+Fixed income is classed by behaviour rather than by wrapper. A bond fund is an
+ETF to the vendor and duration risk to a trader, and the trader is right, so
+`inferAssetClass` reads the name and routes `BIV` or `SCHO` to `bond` even
+though both vendors label them `ETF`. Each bond carries its effective
+duration, because that — not price — is what the rates signal keys on.
+
+### A note on rate limits
+
+The screener runs the full engine over 422 instruments, one price request
+each. On free tiers that is enough to get throttled if you reload it hard.
+It is cached for two minutes, and bars are cached for five; raise
+`MERIDIAN_CACHE_TTL` if you are sharing one key across users.
 
 ## The Trade call
 
@@ -456,6 +509,7 @@ src/
     screener/                 full-universe engine run, filterable
     paper/                    paper blotter with live marks
     api/quotes/               batch quote endpoint
+    api/search/               symbol search: curated + vendor lookup
     api/stream/               server-sent event tick stream
   components/                 panels, charts, gauges, tables (hand-rolled SVG)
                               plus the three shared page views
@@ -470,10 +524,12 @@ src/
     backtest/                 engine, metrics, Monte Carlo
     providers/                adapters, registry, simulator, health
     sentiment/                insider, institutional, social, news, analysts
-    market/                   universe, cockpit, dossier, screener
+    market/                   universe (446 instruments), open-ended resolver,
+                              cockpit, dossier, screener
     paper/                    blotter marking and calibration
-tests/                        140 unit tests
+tests/                        160 unit tests
 scripts/run-backtest.ts       backtest CLI
+scripts/doctor.mts            live-data diagnosis
 scripts/build-standalone.mjs  single-file browser build
 ```
 
@@ -483,7 +539,7 @@ scripts/build-standalone.mjs  single-file browser build
 npm test
 ```
 
-140 tests. Indicator math is checked against hand-computed values (Wilder's RMA
+160 tests. Indicator math is checked against hand-computed values (Wilder's RMA
 recursion, WMA weighting, RSI boundary conditions, true range across a gap,
 ADX/DI ordering); Black-Scholes against textbook values to six decimals, with
 put-call parity, call/put gamma equality, and IV round-trip across 50
@@ -496,6 +552,14 @@ caught: RSI and MFI both returned 100 on a motionless series (the "zero average
 loss ⇒ 100" convention fires even with no gains either), and `price > MA` read
 false at exact equality — so a halted or illiquid instrument scored as
 maximally overbought and generated short signals out of nothing.
+
+The universe has its own integrity tests, because a data table is code that
+fails silently: symbols must be unique, calibration must be finite and
+plausible, every crypto entry must carry the ids its providers need, every
+home-panel symbol must resolve, and the bond ladder's durations and
+volatilities must both increase with maturity — if `TLT` is calibrated calmer
+than `SHY`, every rates-driven signal downstream is wrong and nothing else in
+the suite would notice.
 
 ## Keyboard
 

@@ -24,11 +24,18 @@ export interface CockpitView {
   commodities: TickerRow[];
   fx: TickerRow[];
   rates: TickerRow[];
+  /** Added with the fixed-income and world coverage; optional so the
+   *  standalone browser build can render without them. */
+  bonds?: TickerRow[];
+  world?: TickerRow[];
   sectors: SectorRow[];
   vix: VixComplex;
   stress: StressGauge;
   breadth: Breadth;
-  ideas: { equities: TradeIdea[]; crypto: TradeIdea[]; indexes: TradeIdea[]; commodities: TradeIdea[] };
+  ideas: {
+    equities: TradeIdea[]; crypto: TradeIdea[]; indexes: TradeIdea[];
+    commodities: TradeIdea[]; bonds?: TradeIdea[];
+  };
   playbook: SessionPlaybook;
   mode?: 'live' | 'mixed' | 'simulated';
   /** 'server' can point at .env.local; the browser build cannot. */
@@ -38,7 +45,7 @@ export interface CockpitView {
 export function MarketCockpit({ d }: { d: CockpitView }) {
   return (
     <div className="min-h-full">
-      <Tape rows={[...d.indexes, ...d.crypto, ...d.commodities, ...d.fx]} />
+      <Tape rows={[...d.indexes, ...d.crypto, ...d.commodities, ...d.fx, ...(d.bonds ?? [])]} />
 
       {(d.mode ?? 'simulated') === 'simulated' && <SimulationBanner build={d.build ?? 'server'} />}
 
@@ -60,6 +67,22 @@ export function MarketCockpit({ d }: { d: CockpitView }) {
           <Panel title="FX & Rates" provenance={d.fx[0]?.provenance}>
             <TickerTable rows={[...d.fx, ...d.rates]} showRsi={false} compact />
           </Panel>
+
+          {d.bonds && d.bonds.length > 0 && (
+            <Panel
+              title="Bonds"
+              subtitle="short duration to long"
+              provenance={d.bonds[0]?.provenance}
+            >
+              <TickerTable rows={d.bonds} showRsi={false} compact />
+            </Panel>
+          )}
+
+          {d.world && d.world.length > 0 && (
+            <Panel title="World" subtitle="local currency" provenance={d.world[0]?.provenance}>
+              <TickerTable rows={d.world} showRsi={false} compact />
+            </Panel>
+          )}
         </div>
 
         {/* ================= CENTRE ================= */}
@@ -117,6 +140,16 @@ export function MarketCockpit({ d }: { d: CockpitView }) {
               <IdeaTable ideas={d.ideas.commodities.slice(0, 10)} />
             </Panel>
           </div>
+
+          {d.ideas.bonds && d.ideas.bonds.length > 0 && (
+            <Panel
+              title="Top fixed income"
+              subtitle="duration and credit"
+              provenance={d.ideas.bonds[0]?.provenance}
+            >
+              <IdeaTable ideas={d.ideas.bonds.slice(0, 10)} />
+            </Panel>
+          )}
         </div>
 
         {/* ================= RIGHT RAIL ================= */}

@@ -12,7 +12,8 @@ export interface Bar {
   v: number;
 }
 
-export type AssetClass = 'equity' | 'etf' | 'index' | 'crypto' | 'commodity' | 'fx' | 'rate';
+export type AssetClass =
+  | 'equity' | 'etf' | 'index' | 'crypto' | 'commodity' | 'fx' | 'rate' | 'bond';
 
 export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w';
 
