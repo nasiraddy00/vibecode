@@ -4,13 +4,15 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { searchInstruments, type Instrument } from '@/lib/market/universe';
+import { TradeButton } from '@/components/TradeButton';
 
 const NAV = [
   { key: 'F1', label: 'MARKETS', href: '/' },
-  { key: 'F2', label: 'SIGNAL', href: '/ticker/BTC-USD' },
-  { key: 'F3', label: 'SCREEN', href: '/screener' },
-  { key: 'F4', label: 'BACKTEST', href: '/backtest' },
-  { key: 'F5', label: 'BLOTTER', href: '/paper' },
+  { key: 'F2', label: 'TRADE', href: '/trade/BTC-USD' },
+  { key: 'F3', label: 'SIGNAL', href: '/ticker/BTC-USD' },
+  { key: 'F4', label: 'SCREEN', href: '/screener' },
+  { key: 'F5', label: 'BACKTEST', href: '/backtest' },
+  { key: 'F6', label: 'BLOTTER', href: '/paper' },
 ];
 
 export function CommandBar() {
@@ -77,8 +79,17 @@ export function CommandBar() {
     } else if (e.key === 'Enter') {
       e.preventDefault();
       const pick = results[cursor];
-      if (pick) go(pick.symbol);
-      else if (query.trim()) go(query.trim().toUpperCase());
+      const symbol = pick ? pick.symbol : query.trim().toUpperCase();
+      if (!symbol) return;
+      // Shift+Enter skips the dossier and goes straight to the trade call.
+      if (e.shiftKey) {
+        setOpen(false);
+        setQuery('');
+        inputRef.current?.blur();
+        router.push(`/trade/${encodeURIComponent(symbol)}`);
+      } else {
+        go(symbol);
+      }
     }
   };
 
@@ -117,25 +128,34 @@ export function CommandBar() {
             aria-label="Instrument search"
             className="flex-1 bg-transparent text-[11.5px] text-ink placeholder:text-ink-4 outline-none num tracking-wide"
           />
-          <kbd className="label-xs border border-hairline px-1 py-0.5 hidden sm:block">/</kbd>
+          <kbd
+            className="label-xs border border-hairline px-1 py-0.5 hidden sm:block"
+            title="Press / to focus. Enter opens the dossier; Shift+Enter goes straight to the trade call."
+          >
+            /
+          </kbd>
         </div>
 
         {open && results.length > 0 && (
           <ul className="absolute top-full left-0 right-0 mt-1 bg-overlay border border-hairline-bright shadow-2xl shadow-black/60 max-h-80 overflow-y-auto">
             {results.map((r, i) => (
-              <li key={r.symbol}>
+              <li
+                key={r.symbol}
+                onMouseEnter={() => setCursor(i)}
+                className={`flex items-center gap-2 pr-2 transition-colors ${
+                  i === cursor ? 'bg-raised' : 'hover:bg-raised/60'
+                }`}
+              >
                 <button
                   type="button"
-                  onMouseEnter={() => setCursor(i)}
                   onClick={() => go(r.symbol)}
-                  className={`w-full flex items-center gap-3 px-2.5 py-1.5 text-left transition-colors ${
-                    i === cursor ? 'bg-raised' : 'hover:bg-raised/60'
-                  }`}
+                  className="flex-1 min-w-0 flex items-center gap-3 px-2.5 py-1.5 text-left"
                 >
                   <span className="num text-[11.5px] font-bold text-amber w-24 shrink-0 truncate">{r.symbol}</span>
                   <span className="text-[11px] text-ink-2 flex-1 truncate">{r.name}</span>
                   <span className="label-xs shrink-0">{r.assetClass}</span>
                 </button>
+                <TradeButton symbol={r.symbol} size="xs" />
               </li>
             ))}
           </ul>

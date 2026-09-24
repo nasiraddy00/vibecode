@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Sparkline } from './Sparkline';
 import { ScoreBar } from './Gauge';
 import { fmtPrice, fmtPct, fmtNum } from '@/lib/util/format';
+import { TradeButton } from '@/components/TradeButton';
 import type { TradeIdea } from '@/lib/market/cockpit';
 
 const ACTION_STYLE: Record<string, string> = {
@@ -53,8 +54,9 @@ export function IdeaRow({ idea, rank }: { idea: TradeIdea; rank: number }) {
         </span>
       </td>
       <td className="pr-2">
-        <div className="flex justify-end">
+        <div className="flex items-center justify-end gap-2">
           <Sparkline data={idea.spark} width={70} height={18} />
+          <TradeButton symbol={idea.symbol} size="xs" />
         </div>
       </td>
     </tr>
@@ -89,7 +91,7 @@ export function IdeaTable({ ideas }: { ideas: TradeIdea[] }) {
             <th className="hidden md:table-cell">Stop</th>
             <th className="hidden lg:table-cell">Target</th>
             <th className="hidden lg:table-cell">R:R</th>
-            <th className="w-[78px]">30D</th>
+            <th className="w-[136px]">30D</th>
           </tr>
         </thead>
         <tbody>

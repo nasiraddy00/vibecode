@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Sparkline } from '@/components/Sparkline';
 import { ScoreBar } from '@/components/Gauge';
 import { fmtPrice, fmtPct, fmtNum } from '@/lib/util/format';
+import { TradeButton } from '@/components/TradeButton';
 import type { ScreenerRow } from '@/lib/market/screener';
 
 type SortKey = keyof Pick<
@@ -141,7 +142,7 @@ export function ScreenerClient({ rows }: { rows: ScreenerRow[] }) {
               <Th k="relVolume" className="hidden lg:table-cell">RVol</Th>
               <Th k="pctFrom52wHigh" className="hidden xl:table-cell">52wH</Th>
               <Th k="riskReward" className="hidden xl:table-cell">R:R</Th>
-              <th className="w-[64px]">Trend</th>
+              <th className="w-[122px]">Trend</th>
             </tr>
           </thead>
           <tbody>
@@ -195,7 +196,10 @@ export function ScreenerClient({ rows }: { rows: ScreenerRow[] }) {
                   {Number.isFinite(r.riskReward) ? fmtNum(r.riskReward, 1) : '—'}
                 </td>
                 <td className="pr-2">
-                  <div className="flex justify-end"><Sparkline data={r.spark} width={56} height={18} /></div>
+                  <div className="flex items-center justify-end gap-2">
+                    <Sparkline data={r.spark} width={56} height={18} />
+                    <TradeButton symbol={r.symbol} size="xs" />
+                  </div>
                 </td>
               </tr>
             ))}

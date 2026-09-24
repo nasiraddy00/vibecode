@@ -15,6 +15,7 @@ import { VerdictCard } from '@/components/VerdictCard';
 import { VoteTable, AttributionChart } from '@/components/VoteTable';
 import { Sparkline } from '@/components/Sparkline';
 import { Meter, ScoreBar } from '@/components/Gauge';
+import { TradeButton } from '@/components/TradeButton';
 import type { Bar, Provenance, SignalResult } from '@/lib/types';
 import type { Instrument } from '@/lib/market/universe';
 import type { IndicatorSnapshot } from '@/lib/indicators';
@@ -185,6 +186,7 @@ function InstrumentHeader({ d }: { d: DossierView }) {
               {d.instrument.assetClass.toUpperCase()}
             </span>
             <span className="label-xs">{d.instrument.venue}</span>
+            <TradeButton symbol={d.instrument.symbol} size="md" className="ml-1" />
           </div>
           {d.instrument.description && (
             <p className="text-[10.5px] text-ink-3 mt-1.5 max-w-2xl leading-snug">
