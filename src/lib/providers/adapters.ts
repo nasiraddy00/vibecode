@@ -686,3 +686,173 @@ export async function frankfurterQuote(inst: Instrument): Promise<Quote> {
     provenance: 'live', source: 'frankfurter', asOf: lastBar.t,
   };
 }
+
+/* ---------------------------------------------------------------------------
+   FINNHUB, continued — the parts of the free tier that carry real reported
+   facts rather than prices: analyst recommendations, earnings history and
+   the forward calendar.
+
+   These replace modelled stand-ins for US equities. Where the free tier does
+   not carry something (per-firm price targets, full financial statements),
+   these adapters return nothing rather than something plausible.
+   ------------------------------------------------------------------------- */
+
+export interface FinnhubRecommendation {
+  period: string;
+  strongBuy: number;
+  buy: number;
+  hold: number;
+  sell: number;
+  strongSell: number;
+}
+
+/** Aggregate analyst recommendation counts, newest period first. Finnhub's
+ *  free tier gives the distribution but not the individual firms or their
+ *  price targets, so callers get counts and nothing invented around them. */
+export async function finnhubRecommendations(symbol: string): Promise<FinnhubRecommendation[]> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) throw new ProviderError('FINNHUB_API_KEY not configured', 'finnhub');
+  const url = `https://finnhub.io/api/v1/stock/recommendation?symbol=${encodeURIComponent(symbol)}&token=${key}`;
+  const t0 = Date.now();
+  try {
+    const rows = await fetchJson<FinnhubRecommendation[]>(url, { provider: 'finnhub', timeoutMs: 9000 });
+    recordSuccess('finnhub', Date.now() - t0);
+    if (!Array.isArray(rows)) return [];
+    return [...rows].sort((a, b) => (a.period < b.period ? 1 : -1));
+  } catch (err) {
+    recordFailure('finnhub', (err as Error).message);
+    throw err;
+  }
+}
+
+export interface FinnhubEarningsRow {
+  period: string;
+  actual: number | null;
+  estimate: number | null;
+  surprise: number | null;
+  surprisePercent: number | null;
+  quarter?: number;
+  year?: number;
+}
+
+/** Reported earnings history: estimate, actual and surprise per quarter. */
+export async function finnhubEarnings(symbol: string): Promise<FinnhubEarningsRow[]> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) throw new ProviderError('FINNHUB_API_KEY not configured', 'finnhub');
+  const url = `https://finnhub.io/api/v1/stock/earnings?symbol=${encodeURIComponent(symbol)}&token=${key}`;
+  const t0 = Date.now();
+  try {
+    const rows = await fetchJson<FinnhubEarningsRow[]>(url, { provider: 'finnhub', timeoutMs: 9000 });
+    recordSuccess('finnhub', Date.now() - t0);
+    return Array.isArray(rows) ? rows : [];
+  } catch (err) {
+    recordFailure('finnhub', (err as Error).message);
+    throw err;
+  }
+}
+
+export interface FinnhubCalendarRow {
+  symbol: string;
+  date: string;
+  hour?: string;
+  quarter?: number;
+  year?: number;
+  epsEstimate?: number | null;
+  epsActual?: number | null;
+  revenueEstimate?: number | null;
+  revenueActual?: number | null;
+}
+
+/** The forward earnings calendar — when the next report actually lands.
+ *  A trade plan that ignores a report three days out is not a plan. */
+export async function finnhubEarningsCalendar(
+  symbol: string, fromMs: number, toMs: number,
+): Promise<FinnhubCalendarRow[]> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) throw new ProviderError('FINNHUB_API_KEY not configured', 'finnhub');
+  const iso = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+  const url = `https://finnhub.io/api/v1/calendar/earnings?from=${iso(fromMs)}&to=${iso(toMs)}`
+    + `&symbol=${encodeURIComponent(symbol)}&token=${key}`;
+  const t0 = Date.now();
+  try {
+    const d = await fetchJson<{ earningsCalendar?: FinnhubCalendarRow[] }>(url, {
+      provider: 'finnhub', timeoutMs: 9000,
+    });
+    recordSuccess('finnhub', Date.now() - t0);
+    return d.earningsCalendar ?? [];
+  } catch (err) {
+    recordFailure('finnhub', (err as Error).message);
+    throw err;
+  }
+}
+
+export interface FinnhubMetrics { [key: string]: number | string | null | undefined }
+
+/** 130+ reported ratios: valuation, margins, returns, leverage, 52-week
+ *  range, growth. The single richest free call Finnhub serves. */
+export async function finnhubMetrics(symbol: string): Promise<FinnhubMetrics> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) throw new ProviderError('FINNHUB_API_KEY not configured', 'finnhub');
+  const url = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all&token=${key}`;
+  const t0 = Date.now();
+  try {
+    const d = await fetchJson<{ metric?: FinnhubMetrics }>(url, { provider: 'finnhub', timeoutMs: 10000 });
+    recordSuccess('finnhub', Date.now() - t0);
+    return d.metric ?? {};
+  } catch (err) {
+    recordFailure('finnhub', (err as Error).message);
+    throw err;
+  }
+}
+
+export interface FinnhubProfile {
+  name?: string; ticker?: string; finnhubIndustry?: string; currency?: string;
+  marketCapitalization?: number; shareOutstanding?: number; floatingShare?: number;
+  exchange?: string; country?: string; ipo?: string; weburl?: string;
+}
+
+export async function finnhubProfile(symbol: string): Promise<FinnhubProfile> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) throw new ProviderError('FINNHUB_API_KEY not configured', 'finnhub');
+  const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}&token=${key}`;
+  const t0 = Date.now();
+  try {
+    const d = await fetchJson<FinnhubProfile>(url, { provider: 'finnhub', timeoutMs: 9000 });
+    recordSuccess('finnhub', Date.now() - t0);
+    return d ?? {};
+  } catch (err) {
+    recordFailure('finnhub', (err as Error).message);
+    throw err;
+  }
+}
+
+export interface FinnhubNewsRow {
+  category?: string;
+  datetime?: number;
+  headline?: string;
+  id?: number;
+  source?: string;
+  summary?: string;
+  url?: string;
+}
+
+/** Company news. Finnhub's free tier carries the articles but not a
+ *  sentiment score, so the analyser reads the headlines itself. */
+export async function finnhubNews(
+  symbol: string, fromMs: number, toMs: number,
+): Promise<FinnhubNewsRow[]> {
+  const key = process.env.FINNHUB_API_KEY;
+  if (!key) throw new ProviderError('FINNHUB_API_KEY not configured', 'finnhub');
+  const iso = (ms: number): string => new Date(ms).toISOString().slice(0, 10);
+  const url = `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}`
+    + `&from=${iso(fromMs)}&to=${iso(toMs)}&token=${key}`;
+  const t0 = Date.now();
+  try {
+    const rows = await fetchJson<FinnhubNewsRow[]>(url, { provider: 'finnhub', timeoutMs: 10000 });
+    recordSuccess('finnhub', Date.now() - t0);
+    return Array.isArray(rows) ? rows : [];
+  } catch (err) {
+    recordFailure('finnhub', (err as Error).message);
+    throw err;
+  }
+}

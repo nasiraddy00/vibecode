@@ -162,27 +162,56 @@ to that vendor.
 
 ### 1. Get a key
 
-| Vendor | Covers | Key needed | Free tier |
-|---|---|---|---|
-| **Binance** | Crypto | **none** | unlimited public market streams |
-| **Yahoo Finance** | Everything | **none** | unofficial, rate-limited, no SLA |
-| **CoinGecko** | Crypto | none (key raises limits) | 30 calls/min |
-| **Finnhub** | US equities, fundamentals, insider | `FINNHUB_API_KEY` | 60 calls/min + WebSocket |
-| **Polygon** | Equities, options chains, tick data | `POLYGON_API_KEY` | paid; the best options data |
-| **Alpha Vantage** | Equities, FX | `ALPHAVANTAGE_API_KEY` | 25 calls/day |
-
-The quickest path is Finnhub: free, two minutes to sign up, and it covers
-quotes, fundamentals, earnings and insider transactions in one key. Crypto
-needs nothing at all.
+One key, and only one, is worth getting: **Finnhub** (finnhub.io/register,
+free, sixty seconds). It is what makes real-time quotes, the full symbol
+directory, analyst coverage, earnings and insider filings work. Everything
+else below needs no credentials at all.
 
 ```bash
-cp .env.example .env.local     # then paste your key in
-npm run dev                    # restart — .env.local is read at startup
+cp .env.example .env.local     # paste the key in
+npm run dev
 ```
 
-Each feed flips its own badge from `SIM` to `LIVE` independently. There is no
-all-or-nothing switch, and the status strip at the bottom of every screen shows
-which are alive.
+### Where each number actually comes from
+
+| What | Source | Key? |
+|---|---|---|
+| Equity / ETF / bond quotes | Finnhub | yes |
+| Equity / ETF / bond / index bars | Nasdaq public history | no |
+| Crypto bars and quotes | Binance data mirror → CoinGecko | no |
+| FX | Yahoo → ECB fixings (Frankfurter) | no |
+| Symbol directory (31k US listings) | Finnhub | yes |
+| Analyst consensus, earnings, insider filings, news | Finnhub | yes |
+
+Three of those deserve an explanation, because the obvious choice was wrong
+in each case:
+
+- **Bars do not come from Finnhub.** Its free tier serves no candles at all,
+  and candles are what every indicator is computed from. Nasdaq's own public
+  endpoint carries the daily history instead — 750 sessions, and its closes
+  agree with Finnhub's quotes to the cent.
+- **Crypto does not come from `api.binance.com`.** That host answers `451` to
+  datacentre IPs. The public data mirror serves the same market data without
+  the geo-block.
+- **Yahoo is a fallback, not a primary.** It rate-limits hard enough to be
+  unreliable under load, so it sits last in every chain where something else
+  works.
+
+### What is still modelled
+
+Being able to tell these apart is the point of the provenance badge, so they
+are listed rather than blurred:
+
+| Modelled | Why |
+|---|---|
+| Financial statements, DCF, Piotroski, Altman, Beneish | Full statements are not on any free tier |
+| Institutional / 13F holdings | Not free, and 45 days stale by the time they file |
+| Social and retail positioning | No free feed exists |
+| Options chains and implied volatility | Not free |
+
+These keep their `SIM` badge and their `simulated` provenance everywhere they
+appear. Real data always wins where a real feed exists; where it does not,
+the model says so rather than quietly filling in.
 
 ### 2. Allow the outbound connection
 
@@ -194,6 +223,18 @@ On your own machine this is a non-issue. In a sandboxed or corporate
 environment, the vendor's hostname has to be allowed:
 `api.binance.com`, `stream.binance.com`, `query1.finance.yahoo.com`,
 `finnhub.io`, `api.coingecko.com`, `data.sec.gov`.
+
+### If every feed reports down while curl works
+
+Node's built-in fetch ignores `HTTPS_PROXY`. Behind a proxying network the
+request leaves by a different route and is refused, so every feed reports
+itself down while `curl` against the same host from the same machine
+succeeds. It looks exactly like a bad API key.
+
+`scripts/run.mjs` fixes this: it sets Node's `--use-env-proxy` when, and only
+when, a proxy is configured, and every npm script goes through it. If you run
+`tsx` or `next` directly and feeds are down, that is why — use the npm script,
+or export `NODE_USE_ENV_PROXY=1`.
 
 ### 3. Diagnose it
 
@@ -264,9 +305,10 @@ label it accurately — it will not call a 15-minute-delayed quote "live".
 | FX | 24 | G10 majors, the crosses that matter, EM |
 | Rates | 4 | The treasury curve as yields, not prices |
 
-**Anything not on that list still works.** Type any ticker into the command
-bar and it resolves through the vendors' own symbol search — international
-listings, ADRs, closed-end funds, small caps, obscure ETFs. The terminal
+**Anything not on that list still works.** The full US listed-symbol
+directory — 31,107 tickers — is pulled from Finnhub once, cached for a day
+and indexed in memory, so the command bar reaches every listed stock, ETF,
+ADR, REIT and closed-end fund, and answers in under 20ms. The terminal
 synthesises an instrument, marks it `EXT` in the search results, and runs the
 same engine on it. The only difference is that its fallback calibration is
 inferred from its own price history rather than set by hand.
@@ -522,12 +564,13 @@ src/
     signals/                  votes, regime, ensemble, trade plan, analyst note
     realtime/                 Binance WebSocket, SSE hook, tick model
     backtest/                 engine, metrics, Monte Carlo
-    providers/                adapters, registry, simulator, health
+    providers/                adapters, registry, simulator, health,
+                              31k-symbol US directory
     sentiment/                insider, institutional, social, news, analysts
     market/                   universe (446 instruments), open-ended resolver,
                               cockpit, dossier, screener
     paper/                    blotter marking and calibration
-tests/                        160 unit tests
+tests/                        164 unit tests
 scripts/run-backtest.ts       backtest CLI
 scripts/doctor.mts            live-data diagnosis
 scripts/build-standalone.mjs  single-file browser build
@@ -539,7 +582,7 @@ scripts/build-standalone.mjs  single-file browser build
 npm test
 ```
 
-160 tests. Indicator math is checked against hand-computed values (Wilder's RMA
+164 tests. Indicator math is checked against hand-computed values (Wilder's RMA
 recursion, WMA weighting, RSI boundary conditions, true range across a gap,
 ADX/DI ordering); Black-Scholes against textbook values to six decimals, with
 put-call parity, call/put gamma equality, and IV round-trip across 50

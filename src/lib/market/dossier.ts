@@ -5,6 +5,9 @@
 
 import type { Bar, SignalResult, Provenance } from '../types';
 import { resolveInstrument, type Instrument } from './universe';
+import { liveInsiders, liveAnalysts, liveNews } from '../sentiment/live';
+import { liveEarnings } from '../fundamentals/live';
+import { finnhubConfigured } from '../providers/adapters';
 import { resolveAny } from './resolve';
 import { getBars, getQuote, type QuoteResult } from '../providers';
 import { computeSnapshot, type IndicatorSnapshot } from '../indicators';
@@ -97,19 +100,41 @@ export async function buildDossier(
   let earnings: EarningsAnalysis | null = null;
   let analysts: AnalystConsensus | null = null;
 
+  // Where a real feed carries the fact, the real fact wins; where it does
+  // not, the modelled stand-in is used and keeps its 'simulated' provenance,
+  // so the two never blur together on screen.
+  const wantsLive = finnhubConfigured()
+    && (inst.assetClass === 'equity' || inst.assetClass === 'etf')
+    && !inst.continuous;
+
+  const [liveEarn, liveCons, liveIns, liveNewsResult] = wantsLive
+    ? await Promise.all([
+      liveEarnings(inst.symbol, now).catch(() => null),
+      liveAnalysts(inst.symbol).catch(() => null),
+      inst.assetClass === 'equity' ? liveInsiders(inst.symbol, now).catch(() => null) : null,
+      liveNews(inst.symbol, now).catch(() => null),
+    ])
+    : [null, null, null, null];
+
   if (inst.assetClass === 'equity' || inst.assetClass === 'etf') {
+    // Full financial statements are not on any free tier, so the valuation
+    // model stays modelled. It is badged accordingly wherever it is shown.
     raw = generateFundamentals(inst, bars, now);
     fundamentals = assessFundamentals(raw, snapshot.price);
-    const ev = generateEarnings(inst, raw, bars, now);
+
+    const ev = liveEarn ?? generateEarnings(inst, raw, bars, now);
     earnings = analyseEarnings(ev.history, ev.next, now, 10);
-    analysts = analyseAnalysts(generateAnalysts(inst, bars, now), snapshot.price, 'simulated', 'simulator', now);
+
+    analysts = liveCons
+      ?? analyseAnalysts(generateAnalysts(inst, bars, now), snapshot.price, 'simulated', 'simulator', now);
   }
 
   // --- flow & sentiment ---------------------------------------------------
   const insider = inst.assetClass === 'equity'
-    ? analyseInsiders(generateInsiders(inst, bars, now), 'simulated', 'simulator', now)
+    ? liveIns ?? analyseInsiders(generateInsiders(inst, bars, now), 'simulated', 'simulator', now)
     : null;
 
+  // 13F holdings are quarterly, filed 45 days late, and not on a free tier.
   const institutional = raw
     ? analyseInstitutional(
         generateInstitutional(inst, bars, raw.floatShares, now),
@@ -117,8 +142,9 @@ export async function buildDossier(
       )
     : null;
 
+  // No free feed carries retail positioning, so social stays modelled.
   const social = analyseSocial(generateSocial(inst, bars), 'simulated', 'simulator');
-  const news = analyseNews(generateNews(inst, bars, now), 'simulated', 'simulator', now);
+  const news = liveNewsResult ?? analyseNews(generateNews(inst, bars, now), 'simulated', 'simulator', now);
 
   // --- options ------------------------------------------------------------
   const optionsAvailable =

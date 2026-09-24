@@ -56,6 +56,12 @@ export interface DossierView {
   fallbackReason?: string;
 }
 
+/** Total analysts covering. The aggregate feed reports counts without naming
+ *  the firms, so `ratings` can be empty while coverage is real. */
+function analystCount(a: AnalystConsensus): number {
+  return a.strongBuy + a.buy + a.hold + a.sell + a.strongSell;
+}
+
 export function TickerDossier({ d }: { d: DossierView }) {
   const s = d.snapshot;
   const sig = d.signal;
@@ -803,7 +809,7 @@ function ConsensusPanel({
   return (
     <Panel title="Consensus & sentiment" provenance="simulated" source="simulator">
       <div className="p-3">
-        {analysts && analysts.ratings.length > 0 && (
+        {analysts && (analysts.ratings.length > 0 || analystCount(analysts) > 0) && (
           <div className="mb-3 pb-3 border-b border-hairline">
             <div className="label mb-2">SELL-SIDE</div>
             <div className="flex items-center gap-[2px] h-5 mb-2">
@@ -815,7 +821,7 @@ function ConsensusPanel({
                 ['strongSell', 'var(--color-short)'],
               ] as const).map(([k, colour]) => {
                 const count = analysts[k];
-                const total = analysts.ratings.length || 1;
+                const total = analysts.ratings.length || analystCount(analysts) || 1;
                 return count > 0 ? (
                   <div
                     key={k}
@@ -830,8 +836,18 @@ function ConsensusPanel({
             </div>
             <div className="grid grid-cols-3 gap-2 mb-2">
               <MiniStat label="CONSENSUS" value={fmtNum(analysts.consensusScore, 2)} />
-              <MiniStat label="MEAN TARGET" value={fmtPrice(analysts.meanTarget)} />
-              <MiniStat label="UPSIDE" value={fmtPct(analysts.targetUpsidePct, 1)} tone={analysts.targetUpsidePct > 0 ? 'long' : 'short'} />
+              {Number.isFinite(analysts.meanTarget) ? (
+                <>
+                  <MiniStat label="MEAN TARGET" value={fmtPrice(analysts.meanTarget)} />
+                  <MiniStat
+                    label="UPSIDE"
+                    value={fmtPct(analysts.targetUpsidePct, 1)}
+                    tone={analysts.targetUpsidePct > 0 ? 'long' : 'short'}
+                  />
+                </>
+              ) : (
+                <MiniStat label="COVERING" value={String(analystCount(analysts))} />
+              )}
             </div>
             <p className="text-[10px] leading-[1.55] text-ink-3">{analysts.note}</p>
           </div>
