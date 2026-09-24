@@ -23,6 +23,9 @@ import {
 import { finnhubSearch, yahooSearch, yahooLookup, type SymbolHit } from '../providers/adapters';
 import { finnhubConfigured } from '../providers/adapters';
 import { cacheGet, cacheSet, isOffline } from '../providers/http';
+import {
+  loadDirectory, searchDirectory, lookupDirectory, type DirectoryEntry,
+} from '../providers/directory';
 
 /* --- asset-class inference ------------------------------------------------
    Symbol shape is checked before the vendor's own label because the shape is
@@ -100,6 +103,16 @@ export function synthesise(hit: SymbolHit): Instrument {
   };
 }
 
+/** The directory speaks Finnhub's vocabulary; SymbolHit is ours. */
+const fromDirectory = (e: DirectoryEntry): SymbolHit => ({
+  symbol: e.symbol,
+  name: e.name,
+  type: e.type === 'ETP' ? 'ETF' : e.type,
+  exchange: e.mic,
+  currency: 'USD',
+  source: 'finnhub',
+});
+
 /* --- resolution ----------------------------------------------------------- */
 
 /** Negative lookups are cached too: a typo should not re-hit the vendors on
@@ -124,6 +137,20 @@ export async function resolveAny(raw: string): Promise<Instrument | undefined> {
   if (memo) return memo === NOT_FOUND ? undefined : memo;
 
   if (isOffline()) return undefined;
+
+  // The full US directory answers instantly once loaded and covers every
+  // listed symbol, so it is tried before any per-symbol vendor call.
+  try {
+    const entries = await loadDirectory();
+    const hit = lookupDirectory(entries, key);
+    if (hit) {
+      const inst = registerInstrument(synthesise(fromDirectory(hit)));
+      resolveCache.set(key, inst);
+      return inst;
+    }
+  } catch {
+    // No directory (no key, or the fetch failed) — fall through to search.
+  }
 
   for (const lookup of vendorLookups(key)) {
     try {
@@ -184,8 +211,21 @@ export async function searchAll(query: string, limit = 14): Promise<SearchHit[]>
   const q = query.trim();
   if (!q) return [];
 
-  const local = searchInstruments(q, limit).map(toHit);
+  let local = searchInstruments(q, limit).map(toHit);
   if (local.length >= limit || isOffline()) return local.slice(0, limit);
+
+  // The directory is the main event: 30,000+ listed symbols, searched in
+  // memory with no round trip. Vendor search is only a backstop for when it
+  // is unavailable, or for symbols outside US exchanges.
+  try {
+    const entries = await loadDirectory();
+    const fromDir = searchDirectory(entries, q, limit).map((e) => toHit(synthesise(fromDirectory(e))));
+    const merged = merge(local, fromDir, limit);
+    if (merged.length >= limit) return merged;
+    local = merged;
+  } catch {
+    // Fall through to the per-query vendor search.
+  }
 
   const cacheKey = `search:${q.toUpperCase()}`;
   const cached = cacheGet<SearchHit[]>(cacheKey);

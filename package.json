@@ -7,16 +7,16 @@
     "node": ">=20.9.0"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "node scripts/run.mjs npx next dev",
+    "build": "node scripts/run.mjs npx next build",
     "build:standalone": "node scripts/build-standalone.mjs",
-    "start": "next start",
+    "start": "node scripts/run.mjs npx next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts",
-    "backtest": "tsx scripts/run-backtest.ts",
-    "backtest:btc": "tsx scripts/run-backtest.ts --symbol BTC-USD --capital 10",
-    "doctor": "tsx --env-file-if-exists=.env.local scripts/doctor.mts"
+    "test": "node scripts/run.mjs --env MERIDIAN_OFFLINE=1 npx tsx --test tests/*.test.ts",
+    "doctor": "node scripts/run.mjs npx tsx --env-file-if-exists=.env.local scripts/doctor.mts",
+    "backtest": "node scripts/run.mjs npx tsx --env-file-if-exists=.env.local scripts/run-backtest.ts",
+    "backtest:btc": "node scripts/run.mjs npx tsx --env-file-if-exists=.env.local scripts/run-backtest.ts --symbol BTC-USD --capital 10"
   },
   "dependencies": {
     "next": "^16.3.6",

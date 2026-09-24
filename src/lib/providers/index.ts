@@ -20,6 +20,7 @@ import { simulateSeries, simulateQuote } from './simulator';
 import {
   yahooBars, yahooQuote, binanceBars, binanceQuote, coingeckoBars,
   finnhubQuote, finnhubConfigured, secConfigured,
+  nasdaqBars, nasdaqQuote, frankfurterBars, frankfurterQuote,
 } from './adapters';
 import { cacheGet, cacheSet, isOffline } from './http';
 import { registerFeed, recordFailure, setFeedState, allFeeds, feedSummary } from './health';
@@ -33,6 +34,8 @@ let initialised = false;
 function init(): void {
   if (initialised) return;
   initialised = true;
+  registerFeed('nasdaq', 'Nasdaq', true);
+  registerFeed('frankfurter', 'ECB / Frankfurter', true);
   registerFeed('yahoo', 'Yahoo Finance', true);
   registerFeed('binance', 'Binance', true);
   registerFeed('coingecko', 'CoinGecko', true);
@@ -121,6 +124,20 @@ interface ProviderStep {
   run: (inst: Instrument, tf: Timeframe, limit: number) => Promise<Bar[]>;
 }
 
+/* Bar sources, per asset class.
+ *
+ *   crypto      binance(data mirror) -> coingecko -> yahoo
+ *   equity      nasdaq -> yahoo
+ *   etf, bond   nasdaq -> yahoo
+ *   index       nasdaq -> yahoo
+ *   fx          frankfurter (ECB) -> yahoo
+ *   other       yahoo
+ *
+ * Nasdaq leads for anything US-listed because it is the only free source of
+ * daily history that is actually reachable: Finnhub's free tier serves no
+ * candles at all, and Yahoo rate-limits datacentre IPs into uselessness.
+ * Yahoo stays last in every chain — it costs nothing to try and it is the
+ * only one of these that covers non-US listings. */
 function barProviderChain(inst: Instrument): ProviderStep[] {
   if (isOffline()) return [];
 
@@ -136,7 +153,43 @@ function barProviderChain(inst: Instrument): ProviderStep[] {
     chain.push({ id: 'yahoo', run: yahooBars });
     return chain;
   }
+
+  if (inst.assetClass === 'fx') {
+    // Yahoo leads here only because it publishes a session range. The ECB
+    // fixing behind Frankfurter is the more authoritative level but it is a
+    // single daily number, so range-based analytics cannot run on it.
+    return [{ id: 'yahoo', run: yahooBars }, { id: 'frankfurter', run: frankfurterBars }];
+  }
+
+  if (inst.assetClass === 'equity' || inst.assetClass === 'etf'
+    || inst.assetClass === 'bond' || inst.assetClass === 'index') {
+    return [{ id: 'nasdaq', run: nasdaqBars }, { id: 'yahoo', run: yahooBars }];
+  }
+
   return [{ id: 'yahoo', run: yahooBars }];
+}
+
+/* Quote sources, per asset class. Finnhub is the only one of these that is a
+ * genuine real-time last-trade feed, so it leads wherever it has coverage;
+ * everything else derives the quote from the most recent daily bar, which is
+ * a real close but explicitly not a tick. */
+function quoteProviderChain(inst: Instrument): { id: string; run: (i: Instrument) => Promise<Quote> }[] {
+  if (inst.assetClass === 'crypto' && inst.binanceSymbol) {
+    return [{ id: 'binance', run: binanceQuote }, { id: 'yahoo', run: yahooQuote }];
+  }
+  if (inst.assetClass === 'fx') {
+    return [{ id: 'yahoo', run: yahooQuote }, { id: 'frankfurter', run: frankfurterQuote }];
+  }
+  if (inst.assetClass === 'equity' || inst.assetClass === 'etf' || inst.assetClass === 'bond') {
+    const chain: { id: string; run: (i: Instrument) => Promise<Quote> }[] = [];
+    if (finnhubConfigured()) chain.push({ id: 'finnhub', run: finnhubQuote });
+    chain.push({ id: 'nasdaq', run: nasdaqQuote }, { id: 'yahoo', run: yahooQuote });
+    return chain;
+  }
+  if (inst.assetClass === 'index') {
+    return [{ id: 'nasdaq', run: nasdaqQuote }, { id: 'yahoo', run: yahooQuote }];
+  }
+  return [{ id: 'yahoo', run: yahooQuote }];
 }
 
 export interface QuoteResult extends Quote {
@@ -160,13 +213,7 @@ export async function getQuote(symbolOrInst: string | Instrument): Promise<Quote
   const errors: string[] = [];
   if (!isOffline()) {
     const chain: { id: string; run: (i: Instrument) => Promise<Quote> }[] =
-      inst.assetClass === 'crypto' && inst.binanceSymbol
-        ? [{ id: 'binance', run: binanceQuote }, { id: 'yahoo', run: yahooQuote }]
-        : finnhubConfigured()
-          && (inst.assetClass === 'equity' || inst.assetClass === 'etf'
-            || inst.assetClass === 'bond')
-          ? [{ id: 'finnhub', run: finnhubQuote }, { id: 'yahoo', run: yahooQuote }]
-          : [{ id: 'yahoo', run: yahooQuote }];
+      quoteProviderChain(inst);
 
     for (const step of chain) {
       try {

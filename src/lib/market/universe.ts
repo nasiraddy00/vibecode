@@ -40,6 +40,8 @@ export interface Instrument {
   yahooSymbol?: string;
   /** Symbol used by Binance. */
   binanceSymbol?: string;
+  /** Symbol used by Nasdaq, where it differs (share classes, indexes). */
+  nasdaqSymbol?: string;
   /** CoinGecko id. */
   coingeckoId?: string;
   description?: string;

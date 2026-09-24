@@ -145,7 +145,7 @@ type BinanceKline = [number, string, string, string, string, string, number, ...
 export async function binanceBars(inst: Instrument, tf: Timeframe, limit: number): Promise<Bar[]> {
   if (!inst.binanceSymbol) throw new ProviderError(`${inst.symbol} has no Binance mapping`, 'binance');
   const url =
-    `https://api.binance.com/api/v3/klines?symbol=${inst.binanceSymbol}` +
+    `https://data-api.binance.vision/api/v3/klines?symbol=${inst.binanceSymbol}` +
     `&interval=${BINANCE_INTERVAL[tf]}&limit=${Math.min(1000, limit)}`;
 
   const t0 = Date.now();
@@ -174,7 +174,7 @@ interface Binance24h {
 
 export async function binanceQuote(inst: Instrument): Promise<Quote> {
   if (!inst.binanceSymbol) throw new ProviderError(`${inst.symbol} has no Binance mapping`, 'binance');
-  const url = `https://api.binance.com/api/v3/ticker/24hr?symbol=${inst.binanceSymbol}`;
+  const url = `https://data-api.binance.vision/api/v3/ticker/24hr?symbol=${inst.binanceSymbol}`;
   const t0 = Date.now();
   try {
     const d = await fetchJson<Binance24h>(url, { provider: 'binance', timeoutMs: 6000 });
@@ -459,4 +459,230 @@ export async function yahooLookup(symbol: string): Promise<SymbolHit | undefined
   const hits = await yahooSearch(symbol);
   const want = symbol.trim().toUpperCase();
   return hits.find((h) => h.symbol.toUpperCase() === want) ?? hits[0];
+}
+
+
+/* ---------------------------------------------------------------------------
+   NASDAQ — daily OHLCV for US equities, ETFs and indexes, no key.
+
+   This is the bar source. Finnhub's free tier does not serve candles, and
+   Yahoo rate-limits datacentre IPs hard enough to be unusable, so Nasdaq's
+   own public endpoint carries the history that every indicator depends on.
+   It wants a browser User-Agent and returns newest-first rows with prices
+   formatted for display ("$341.075", "31,658,820"), so both need undoing.
+   ------------------------------------------------------------------------- */
+
+const BROWSER_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
+  + '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+/** Nasdaq segments its history endpoint by asset class and rejects a wrong
+ *  one, so the mapping has to be exact. Bond funds are ETFs to an exchange. */
+function nasdaqAssetClass(inst: Instrument): string | undefined {
+  switch (inst.assetClass) {
+    case 'equity': return 'stocks';
+    case 'etf': case 'bond': return 'etf';
+    case 'index': return 'index';
+    default: return undefined;
+  }
+}
+
+/** "$1,234.56" -> 1234.56; "--" and "N/A" -> NaN. */
+export function parseMoney(raw: string | undefined): number {
+  if (!raw) return NaN;
+  const cleaned = raw.replace(/[$,%\s]/g, '').replace(/,/g, '');
+  if (!cleaned || cleaned === '--' || cleaned === 'N/A') return NaN;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+/** Nasdaq prints MM/DD/YYYY. Parsed as UTC noon so a timezone shift cannot
+ *  move a bar onto the previous calendar day. */
+export function parseNasdaqDate(raw: string): number {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(raw.trim());
+  if (!m) return NaN;
+  return Date.UTC(Number(m[3]), Number(m[1]) - 1, Number(m[2]), 12);
+}
+
+interface NasdaqHistoryResponse {
+  data?: {
+    tradesTable?: {
+      rows?: { date: string; close: string; volume: string; open: string; high: string; low: string }[];
+    };
+  };
+  status?: { rCode?: number; bCodeMessage?: { errorMessage?: string }[] | null };
+}
+
+/** Nasdaq's symbol spelling differs from Yahoo's for share classes. */
+function nasdaqSymbol(inst: Instrument): string {
+  return (inst.nasdaqSymbol ?? inst.symbol).replace(/-/g, '/');
+}
+
+export async function nasdaqBars(inst: Instrument, tf: Timeframe, limit: number): Promise<Bar[]> {
+  const assetclass = nasdaqAssetClass(inst);
+  if (!assetclass) throw new ProviderError(`nasdaq does not carry ${inst.assetClass}`, 'nasdaq');
+  if (tf !== '1d' && tf !== '1w') {
+    throw new ProviderError('nasdaq serves daily history only', 'nasdaq');
+  }
+
+  // Ask for calendar days generously: ~252 trading days a year.
+  const days = Math.ceil((limit + 20) * (365 / 252));
+  const to = new Date();
+  const from = new Date(to.getTime() - days * 86400000);
+  const iso = (d: Date): string => d.toISOString().slice(0, 10);
+
+  const url =
+    `https://api.nasdaq.com/api/quote/${encodeURIComponent(nasdaqSymbol(inst))}/historical`
+    + `?assetclass=${assetclass}&fromdate=${iso(from)}&todate=${iso(to)}&limit=9999`;
+
+  const t0 = Date.now();
+  try {
+    const json = await fetchJson<NasdaqHistoryResponse>(url, {
+      provider: 'nasdaq', timeoutMs: 15000, headers: { 'User-Agent': BROWSER_UA },
+    });
+
+    const rows = json.data?.tradesTable?.rows;
+    if (!rows?.length) {
+      const msg = json.status?.bCodeMessage?.[0]?.errorMessage ?? 'no rows returned';
+      throw new ProviderError(msg, 'nasdaq');
+    }
+
+    const bars: Bar[] = [];
+    // Rows arrive newest-first; the engine wants oldest-first.
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      const t = parseNasdaqDate(r.date);
+      const o = parseMoney(r.open), h = parseMoney(r.high);
+      const l = parseMoney(r.low), c = parseMoney(r.close);
+      // Drop rather than interpolate: a fabricated bar corrupts every
+      // indicator downstream, and Nasdaq blanks halted sessions.
+      if (!Number.isFinite(t) || !Number.isFinite(o) || !Number.isFinite(h)
+        || !Number.isFinite(l) || !Number.isFinite(c)) continue;
+      const v = parseMoney(r.volume);
+      bars.push({ t, o, h, l, c, v: Number.isFinite(v) ? v : 0 });
+    }
+
+    if (!bars.length) throw new ProviderError('every row failed to parse', 'nasdaq');
+
+    recordSuccess('nasdaq', Date.now() - t0);
+    if (tf === '1w') return foldWeekly(bars).slice(-limit);
+    return bars.slice(-limit);
+  } catch (err) {
+    recordFailure('nasdaq', (err as Error).message);
+    throw err;
+  }
+}
+
+/** Derive a quote from the daily history, for classes with no quote feed
+ *  (indexes) or when the quote vendor is down. */
+export async function nasdaqQuote(inst: Instrument): Promise<Quote> {
+  const bars = await nasdaqBars(inst, '1d', 5);
+  if (bars.length < 2) throw new ProviderError('not enough history for a quote', 'nasdaq');
+  const lastBar = bars[bars.length - 1];
+  const prev = bars[bars.length - 2];
+  const change = lastBar.c - prev.c;
+  return {
+    symbol: inst.symbol, name: inst.name, assetClass: inst.assetClass,
+    price: lastBar.c, change, changePct: prev.c !== 0 ? (change / prev.c) * 100 : 0,
+    open: lastBar.o, high: lastBar.h, low: lastBar.l, prevClose: prev.c,
+    volume: lastBar.v, currency: inst.currency,
+    // The last daily bar is a real close, but it is a close, not a tick.
+    provenance: 'live', source: 'nasdaq', asOf: lastBar.t,
+  };
+}
+
+export function foldWeekly(bars: Bar[]): Bar[] {
+  const out: Bar[] = [];
+  let cur: Bar | null = null;
+  let curWeek = -1;
+  for (const b of bars) {
+    const d = new Date(b.t);
+    // ISO-ish week key: year * 53 + week number is enough to detect a change.
+    const week = Math.floor(b.t / (7 * 86400000));
+    if (!cur || week !== curWeek) {
+      if (cur) out.push(cur);
+      cur = { ...b };
+      curWeek = week;
+    } else {
+      cur.h = Math.max(cur.h, b.h);
+      cur.l = Math.min(cur.l, b.l);
+      cur.c = b.c;
+      cur.v += b.v;
+    }
+    void d;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+/* ---------------------------------------------------------------------------
+   FRANKFURTER — ECB daily reference rates for FX. No key, no limit.
+
+   These are official daily fixings, which means a close and nothing else:
+   no open, high or low, because the ECB does not publish one. Rather than
+   invent a range, the bars carry o=h=l=c. Range-based analytics (ATR, true
+   range, stop placement) will correctly read zero range and the engine's own
+   guards will decline to size a trade off them. That is the honest outcome:
+   we have the level, we do not have the session.
+   ------------------------------------------------------------------------- */
+
+interface FrankfurterSeries {
+  base: string;
+  rates: Record<string, Record<string, number>>;
+}
+
+/** "EURUSD=X" -> { base: 'EUR', quote: 'USD' } */
+export function parseFxPair(symbol: string): { base: string; quote: string } | undefined {
+  const m = /^([A-Z]{3})([A-Z]{3})=X$/.exec(symbol.trim().toUpperCase());
+  return m ? { base: m[1], quote: m[2] } : undefined;
+}
+
+export async function frankfurterBars(inst: Instrument, _tf: Timeframe, limit: number): Promise<Bar[]> {
+  const pair = parseFxPair(inst.symbol);
+  if (!pair) throw new ProviderError(`${inst.symbol} is not a recognised FX pair`, 'frankfurter');
+
+  const days = Math.ceil((limit + 20) * (365 / 252));
+  const to = new Date();
+  const from = new Date(to.getTime() - days * 86400000);
+  const iso = (d: Date): string => d.toISOString().slice(0, 10);
+
+  const url = `https://api.frankfurter.app/${iso(from)}..${iso(to)}`
+    + `?base=${pair.base}&symbols=${pair.quote}`;
+
+  const t0 = Date.now();
+  try {
+    const json = await fetchJson<FrankfurterSeries>(url, { provider: 'frankfurter', timeoutMs: 12000 });
+    const dates = Object.keys(json.rates ?? {}).sort();
+    if (!dates.length) throw new ProviderError('empty rate series', 'frankfurter');
+
+    const bars: Bar[] = [];
+    for (const d of dates) {
+      const rate = json.rates[d]?.[pair.quote];
+      if (!Number.isFinite(rate)) continue;
+      const t = Date.parse(`${d}T12:00:00Z`);
+      bars.push({ t, o: rate, h: rate, l: rate, c: rate, v: 0 });
+    }
+
+    if (!bars.length) throw new ProviderError('no usable rates', 'frankfurter');
+    recordSuccess('frankfurter', Date.now() - t0);
+    return bars.slice(-limit);
+  } catch (err) {
+    recordFailure('frankfurter', (err as Error).message);
+    throw err;
+  }
+}
+
+export async function frankfurterQuote(inst: Instrument): Promise<Quote> {
+  const bars = await frankfurterBars(inst, '1d', 5);
+  if (bars.length < 2) throw new ProviderError('not enough history for a quote', 'frankfurter');
+  const lastBar = bars[bars.length - 1];
+  const prev = bars[bars.length - 2];
+  const change = lastBar.c - prev.c;
+  return {
+    symbol: inst.symbol, name: inst.name, assetClass: inst.assetClass,
+    price: lastBar.c, change, changePct: prev.c !== 0 ? (change / prev.c) * 100 : 0,
+    open: lastBar.c, high: lastBar.c, low: lastBar.c, prevClose: prev.c,
+    volume: 0, currency: inst.currency,
+    provenance: 'live', source: 'frankfurter', asOf: lastBar.t,
+  };
 }

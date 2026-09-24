@@ -52,3 +52,64 @@ describe('denial diagnostics', () => {
     assert.match(msg, /valid and within quota/);
   });
 });
+
+import { parseMoney, parseNasdaqDate, foldWeekly, parseFxPair } from '../src/lib/providers/adapters';
+
+describe('nasdaq payload parsing', () => {
+  // Nasdaq returns prices formatted for a web page, not for a program.
+  // Every one of these shapes appears in real responses.
+  test('unpicks display-formatted money', () => {
+    assert.equal(parseMoney('$341.075'), 341.075);
+    assert.equal(parseMoney('31,658,820'), 31658820);
+    assert.equal(parseMoney('26,936.04'), 26936.04);
+    assert.equal(parseMoney('80.46'), 80.46);
+    // Indexes report no volume; halted sessions report nothing at all.
+    assert.ok(Number.isNaN(parseMoney('--')));
+    assert.ok(Number.isNaN(parseMoney('N/A')));
+    assert.ok(Number.isNaN(parseMoney('')));
+    assert.ok(Number.isNaN(parseMoney(undefined)));
+  });
+
+  test('parses MM/DD/YYYY at UTC noon so no bar slips a day', () => {
+    const t = parseNasdaqDate('09/23/2026');
+    const d = new Date(t);
+    assert.equal(d.getUTCFullYear(), 2026);
+    assert.equal(d.getUTCMonth(), 8); // September
+    assert.equal(d.getUTCDate(), 23);
+    // Noon UTC survives a +/-12h timezone render without changing date.
+    assert.equal(d.getUTCHours(), 12);
+    assert.ok(Number.isNaN(parseNasdaqDate('2026-09-23')));
+    assert.ok(Number.isNaN(parseNasdaqDate('garbage')));
+  });
+
+  test('weekly folding keeps OHLC semantics', () => {
+    // Two calendar weeks of daily bars.
+    const day = 86400000;
+    const base = Date.UTC(2026, 0, 5, 12); // a Monday
+    const bars = Array.from({ length: 10 }, (_, i) => ({
+      t: base + i * day,
+      o: 100 + i, h: 110 + i, l: 90 + i, c: 105 + i, v: 1000,
+    }));
+
+    const weekly = foldWeekly(bars);
+    assert.ok(weekly.length >= 2, 'ten daily bars must fold into at least two weeks');
+
+    const first = weekly[0];
+    const members = bars.filter((b) => b.t < weekly[1].t);
+    assert.equal(first.o, members[0].o, 'week opens at the first bar');
+    assert.equal(first.c, members[members.length - 1].c, 'week closes at the last bar');
+    assert.equal(first.h, Math.max(...members.map((m) => m.h)), 'week high is the max');
+    assert.equal(first.l, Math.min(...members.map((m) => m.l)), 'week low is the min');
+    assert.equal(first.v, members.reduce((a, m) => a + m.v, 0), 'volume sums');
+  });
+});
+
+describe('fx pair parsing', () => {
+  test('splits a Yahoo-style pair into base and quote', () => {
+    assert.deepEqual(parseFxPair('EURUSD=X'), { base: 'EUR', quote: 'USD' });
+    assert.deepEqual(parseFxPair('usdjpy=x'), { base: 'USD', quote: 'JPY' });
+    assert.equal(parseFxPair('AAPL'), undefined);
+    assert.equal(parseFxPair('BTC-USD'), undefined);
+    assert.equal(parseFxPair('DX-Y.NYB'), undefined);
+  });
+});
