@@ -272,17 +272,31 @@ export function providerStatus(): {
   feeds: ReturnType<typeof allFeeds>;
   summary: ReturnType<typeof feedSummary>;
   offline: boolean;
-  mode: 'live' | 'mixed' | 'simulated';
+  /** 'unknown' means no feed has been called yet in this process — not that
+   *  anything is wrong. Callers must not render it as a failure. */
+  mode: 'live' | 'mixed' | 'simulated' | 'unknown';
 } {
   init();
   const feeds = allFeeds();
   const summary = feedSummary();
-  const nonSim = feeds.filter((f) => f.id !== 'simulator');
-  const liveCount = nonSim.filter((f) => f.state === 'live').length;
+
+  // A feed with no key is not part of the picture, and one nobody has called
+  // yet has not failed. Judging reachability on either would be judging it on
+  // nothing. Requiring *every* registered feed to be live was also wrong: a
+  // single unconfigured optional source made 'live' unreachable forever.
+  const relevant = feeds.filter(
+    (f) => f.id !== 'simulator' && f.state !== 'unconfigured' && f.state !== 'unknown',
+  );
+  const liveCount = relevant.filter((f) => f.state === 'live').length;
+
+  const mode = relevant.length === 0 ? 'unknown'
+    : liveCount === 0 ? 'simulated'
+      : liveCount === relevant.length ? 'live' : 'mixed';
+
   return {
     feeds,
     summary,
     offline: isOffline(),
-    mode: liveCount === 0 ? 'simulated' : liveCount === nonSim.length ? 'live' : 'mixed',
+    mode,
   };
 }

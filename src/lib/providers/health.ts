@@ -3,7 +3,12 @@
    always see which feeds are live and which are degraded.
    ========================================================================= */
 
-export type FeedState = 'live' | 'degraded' | 'down' | 'unconfigured' | 'offline';
+/** 'unknown' is the state of a feed that is configured but has not been
+ *  asked for anything yet. It is deliberately distinct from 'down': a feed
+ *  nobody has called has not failed, and conflating the two makes a cold
+ *  process announce that every feed is dead while live data renders beside
+ *  it — the one claim a trading tool must never get wrong. */
+export type FeedState = 'live' | 'degraded' | 'down' | 'unknown' | 'unconfigured' | 'offline';
 
 export interface FeedHealth {
   id: string;
@@ -23,7 +28,7 @@ export function registerFeed(id: string, label: string, configured: boolean): vo
   if (registry.has(id)) return;
   registry.set(id, {
     id, label,
-    state: configured ? 'down' : 'unconfigured',
+    state: configured ? 'unknown' : 'unconfigured',
     lastSuccess: null, lastError: null, lastErrorAt: null,
     successCount: 0, failureCount: 0, avgLatencyMs: 0,
   });
@@ -56,8 +61,14 @@ export function setFeedState(id: string, state: FeedState): void {
 
 export const allFeeds = (): FeedHealth[] => [...registry.values()];
 
-export function feedSummary(): { live: number; total: number; anyLive: boolean } {
+export function feedSummary(): {
+  live: number; total: number; anyLive: boolean; attempted: number;
+} {
   const feeds = allFeeds();
   const live = feeds.filter((f) => f.state === 'live').length;
-  return { live, total: feeds.length, anyLive: live > 0 };
+  // Only feeds we have actually called tell us anything about reachability.
+  const attempted = feeds.filter(
+    (f) => f.state !== 'unknown' && f.state !== 'unconfigured',
+  ).length;
+  return { live, total: feeds.length, anyLive: live > 0, attempted };
 }

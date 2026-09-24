@@ -10,7 +10,11 @@ export function StatusStrip() {
     live: { label: 'LIVE DATA', colour: 'var(--color-long)', dot: '' },
     mixed: { label: 'PARTIAL FEEDS', colour: 'var(--color-ice)', dot: 'sim' },
     simulated: { label: 'SIMULATED DATA', colour: 'var(--color-amber)', dot: 'sim' },
-  }[status.mode];
+    // Nothing has been asked of any feed yet in this process. That is not a
+    // failure and must not be drawn as one; the per-panel provenance badges
+    // are authoritative for what is actually on screen.
+    unknown: { label: 'FEEDS IDLE', colour: 'var(--color-ink-3)', dot: 'cold' },
+  }[status.mode] ?? { label: 'FEEDS IDLE', colour: 'var(--color-ink-3)', dot: 'cold' };
 
   return (
     <footer className="h-6 border-t border-hairline bg-terminal flex items-center px-3 gap-4 shrink-0 overflow-x-auto no-scrollbar">
@@ -29,6 +33,8 @@ export function StatusStrip() {
             title={
               f.state === 'unconfigured'
                 ? `${f.label}: no API key configured. Add one in .env.local to enable this feed.`
+                : f.state === 'unknown'
+                  ? `${f.label}: configured, not yet called in this process.`
                 : f.lastError
                   ? `${f.label}: ${f.lastError}`
                   : `${f.label}: ${f.state}${f.avgLatencyMs ? ` (${f.avgLatencyMs.toFixed(0)}ms avg)` : ''}`
@@ -40,7 +46,7 @@ export function StatusStrip() {
                 background:
                   f.state === 'live' ? 'var(--color-long)'
                   : f.state === 'degraded' ? 'var(--color-amber)'
-                  : f.state === 'unconfigured' ? 'var(--color-ink-4)'
+                  : f.state === 'unconfigured' || f.state === 'unknown' ? 'var(--color-ink-4)'
                   : 'var(--color-short)',
               }}
             />

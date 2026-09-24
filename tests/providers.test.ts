@@ -113,3 +113,56 @@ describe('fx pair parsing', () => {
     assert.equal(parseFxPair('DX-Y.NYB'), undefined);
   });
 });
+
+import {
+  registerFeed, recordSuccess, recordFailure, allFeeds, feedSummary,
+} from '../src/lib/providers/health';
+
+describe('feed health states', () => {
+  // The bug this guards against: a configured-but-never-called feed was
+  // registered as 'down', so a cold process announced "NO LIVE FEED
+  // REACHABLE — FIGURES ARE SYNTHETIC" in the status strip while live
+  // prices rendered in the panels directly above it. Contradicting yourself
+  // about provenance is worse than either answer alone.
+
+  const get = (id: string) => allFeeds().find((f) => f.id === id);
+
+  test('a feed nobody has called is unknown, not down', () => {
+    registerFeed('t-unknown', 'Test Unknown', true);
+    assert.equal(get('t-unknown')?.state, 'unknown');
+  });
+
+  test('a feed with no key is unconfigured', () => {
+    registerFeed('t-nokey', 'Test NoKey', false);
+    assert.equal(get('t-nokey')?.state, 'unconfigured');
+  });
+
+  test('success and failure move the state as expected', () => {
+    registerFeed('t-flow', 'Test Flow', true);
+    assert.equal(get('t-flow')?.state, 'unknown');
+
+    recordSuccess('t-flow', 120);
+    assert.equal(get('t-flow')?.state, 'live');
+
+    // One failure straight after a success is a blip, not an outage.
+    recordFailure('t-flow', 'transient');
+    assert.equal(get('t-flow')?.state, 'degraded');
+  });
+
+  test('a first-ever failure goes straight to down', () => {
+    registerFeed('t-dead', 'Test Dead', true);
+    recordFailure('t-dead', 'refused');
+    assert.equal(get('t-dead')?.state, 'down');
+  });
+
+  test('summary counts only feeds that were actually called', () => {
+    registerFeed('t-sum-a', 'A', true);
+    registerFeed('t-sum-b', 'B', false);
+    const before = feedSummary().attempted;
+    recordSuccess('t-sum-a', 50);
+    const after = feedSummary().attempted;
+    assert.equal(after, before + 1, 'calling a feed makes it count as attempted');
+    // The unconfigured one never counts, however many times we ask.
+    assert.equal(get('t-sum-b')?.state, 'unconfigured');
+  });
+});
